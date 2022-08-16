@@ -18,17 +18,16 @@ spark = configure_spark_with_delta_pip(builder).getOrCreate()
 
 
 def create_reference_table1():
-    columns = ["letter", "number", "a_float"]
+    column_names = ["letter", "number", "a_float"]
     data = [("a", 1, 1.1), ("b", 2, 2.2), ("c", 3, 3.3)]
     rdd = spark.sparkContext.parallelize(data)
-    df = rdd.toDF(columns)
+    df = rdd.toDF(column_names)
 
     df.write.format("delta").save("reference_tables/reference_table1/table")
 
-    columns = ["letter", "number", "a_float"]
     data = [("d", 4, 4.4), ("e", 5, 5.5)]
     rdd = spark.sparkContext.parallelize(data)
-    df = rdd.toDF(columns)
+    df = rdd.toDF(column_names)
 
     df.write.mode("append").format("delta").save(
         "reference_tables/reference_table1/table"
@@ -51,19 +50,18 @@ def create_reference_table1():
 
 
 def create_reference_table2():
-    columns = ["letter", "number", "a_float"]
+    column_names = ["letter", "number", "a_float"]
     data = [("a", 1, 1.1), ("a", 2, 2.2), ("c", 3, 3.3)]
     rdd = spark.sparkContext.parallelize(data)
-    df = rdd.toDF(columns)
+    df = rdd.toDF(column_names)
 
     df.write.partitionBy("letter").format("delta").save(
         "reference_tables/reference_table2/table"
     )
 
-    columns = ["letter", "number", "a_float"]
     data = [("a", 4, 4.4), ("e", 5, 5.5)]
     rdd = spark.sparkContext.parallelize(data)
-    df = rdd.toDF(columns)
+    df = rdd.toDF(column_names)
 
     df.write.partitionBy("letter").mode("append").format("delta").save(
         "reference_tables/reference_table2/table"

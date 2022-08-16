@@ -45,6 +45,6 @@ Activate the conda environment with `conda activate pyspark-322-delta-200`.
 
 ### Create reference tables
 
-Create the reference tables with `python dat/create_reference_tables.py`.
+Create the reference tables with `python -m dat.create_reference_tables`.
 
 The reference tables are already checked into this repo, so you don't need to create them yourself.
