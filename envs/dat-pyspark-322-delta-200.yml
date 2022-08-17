@@ -1,4 +1,4 @@
-name: pyspark-322-delta-200
+name: dat-pyspark-322-delta-200
 channels:
   - conda-forge
   - defaults
@@ -15,3 +15,4 @@ dependencies:
   - pip
   - pip:
     - delta-spark==2.0.0
+    - chispa

@@ -43,6 +43,8 @@ Create the conda environment on your machine by running `conda env create -f env
 
 Activate the conda environment with `conda activate pyspark-322-delta-200`.
 
+Run the tests with `pytest tests`.
+
 ### Create reference tables
 
 Create the reference tables with `python -m dat.create_reference_tables`.
