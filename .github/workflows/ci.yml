@@ -1,0 +1,95 @@
+
+
+name: Delta Acceptance Testing
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+      PYTHON_VERSION: 3.9.13
+
+
+jobs:
+
+  analyze:
+    name: Lint Code
+    runs-on: ubuntu-latest
+  
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'poetry'          
+
+      - name: Install dependencies and project in dev mode
+        run: |
+          make install
+
+      - name: Lint
+        run: make lint-base lint-mypy
+
+  test-pipeline:
+    name: Run tests
+    runs-on: ubuntu-latest
+    
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install poetry
+        run: |
+          pipx install poetry
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'poetry'
+
+      - name: Install dependencies and project in dev mode
+        run: |
+          make install
+
+      - name: Run unit tests
+        run: |
+          make test
+        env:
+          PY_COLORS: 1
+      
+      - name: Write tables
+        run: |
+          make write-tables
+
+      - name: Commit tables to Git
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Auto committing tables
+          # Optional commit user and author settings
+          # commit_user_name: My GitHub Actions Bot # defaults to "github-actions[bot]"
+          # commit_user_email: my-github-actions-bot@example.org # defaults to "github-actions[bot]@users.noreply.github.com"
+          # commit_author: Author <actions@github.com> # defaults to author of the commit that triggered the run
+          file_pattern: out/
+          add_options: '-f'
+
+      # - name: Report
+      #   run: |
+      #     make report-coverage
+
+      # - name: Upload code coverage result to CodeCov
+      #   uses: codecov/codecov-action@v2
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }} 
+      #     files: coverage.xml
+      #     fail_ci_if_error: true
+      #     verbose: true 
