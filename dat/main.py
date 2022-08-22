@@ -1,14 +1,21 @@
+import json
 import logging
 import os
 
 import click
 
 from dat import spark_builder, table_definitions
+from dat.model.table import ReferenceTable
 from dat.writers import spark_writer
 
 logging.basicConfig(
     level=logging.INFO
 )
+
+
+@click.group()
+def cli():
+    pass
 
 
 @click.command()
@@ -52,8 +59,30 @@ def write_reference_tables(table_names, output_path):
             write_plan,
             output_path
         )
-    logging.info('Reference table successfully compelted')
+    logging.info('Reference table successfully written')
 
+
+@click.command()
+@click.option(
+    '--output-path',
+    default='./out/schemas',
+    help='The base folder where the schema should be written'
+)
+def write_schemas(output_path):
+    os.makedirs(output_path, exist_ok=True)
+    file_name = '{path}/schema.json'.format(
+        path=output_path
+    )
+    with open(file_name, 'w') as outfile:
+        json.dump(
+            ReferenceTable.schema(),
+            fp=outfile,
+            indent=2,
+        )
+
+
+cli.add_command(write_reference_tables)
+cli.add_command(write_schemas)
 
 if __name__ == '__main__':
-    write_reference_tables()
+    cli()

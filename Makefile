@@ -51,7 +51,10 @@ report-coverage: ## Report coverage
 
 
 write-tables:
-	@${POETRY_RUN} python -m dat.main
+	@${POETRY_RUN} python -m dat.main write-reference-tables
+
+write-schemas:
+	@${POETRY_RUN} python -m dat.main write-schemas
 
 help: ## Show this help
 	@egrep -h '\s##\s' $(MAKEFILE_LIST) \
