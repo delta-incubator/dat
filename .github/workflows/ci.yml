@@ -71,7 +71,7 @@ jobs:
       
       - name: Write tables
         run: |
-          git rm -rf out
+          git rm -rf out --ignore-unmatch
           make write-tables
           make write-schemas
           ls
