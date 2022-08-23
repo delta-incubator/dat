@@ -1,0 +1,74 @@
+{
+  "title": "ReferenceTable",
+  "type": "object",
+  "properties": {
+    "table_name": {
+      "title": "Table Name",
+      "type": "string"
+    },
+    "table_description": {
+      "title": "Table Description",
+      "type": "string"
+    },
+    "column_names": {
+      "title": "Column Names",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "partition_keys": {
+      "title": "Partition Keys",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "row_collections": {
+      "title": "Row Collections",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RowCollection"
+      }
+    }
+  },
+  "required": [
+    "table_name",
+    "table_description",
+    "column_names",
+    "partition_keys",
+    "row_collections"
+  ],
+  "definitions": {
+    "WriteMode": {
+      "title": "WriteMode",
+      "description": "An enumeration.",
+      "enum": [
+        "overwrite",
+        "append"
+      ],
+      "type": "string"
+    },
+    "RowCollection": {
+      "title": "RowCollection",
+      "type": "object",
+      "properties": {
+        "write_mode": {
+          "$ref": "#/definitions/WriteMode"
+        },
+        "data": {
+          "title": "Data",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      },
+      "required": [
+        "write_mode",
+        "data"
+      ]
+    }
+  }
+}
