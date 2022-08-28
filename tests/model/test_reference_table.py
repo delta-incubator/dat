@@ -2,16 +2,18 @@ import pytest
 from pydantic import ValidationError
 
 from dat.model.row_collections import RowCollection
-from dat.model.table import ReferenceTable
+from dat.model.table import GeneratedReferenceTable
 
 
 def test_data_has_more_columns_than_table_fails():
     with pytest.raises(ValidationError) as exec_info:
-        ReferenceTable(
+        GeneratedReferenceTable(
             table_name='failing_table',
             table_description='',
             column_names=['a', 'b'],
             partition_keys=[],
+            writer_protocol_version=2,
+            reader_protocol_version=2,
             row_collections=[
                 RowCollection(
                     write_mode='append',
@@ -28,11 +30,13 @@ def test_data_has_more_columns_than_table_fails():
 
 def test_data_has_fewer_columns_than_table_fails():
     with pytest.raises(ValidationError) as exec_info:
-        ReferenceTable(
+        GeneratedReferenceTable(
             table_name='failing_table',
             table_description='',
             column_names=['a', 'b'],
             partition_keys=[],
+            writer_protocol_version=2,
+            reader_protocol_version=2,
             row_collections=[
                 RowCollection(
                     write_mode='append',
@@ -49,11 +53,13 @@ def test_data_has_fewer_columns_than_table_fails():
 
 def test_invalid_partition_key_fails():
     with pytest.raises(ValidationError) as exec_info:
-        ReferenceTable(
+        GeneratedReferenceTable(
             table_name='failing_table',
             table_description='',
             column_names=['a', 'b'],
             partition_keys=['c'],
+            writer_protocol_version=2,
+            reader_protocol_version=2,
             data=[('1', '2')],
         )
     exec_info.match('Partition keys should all be columns of the table')
@@ -61,11 +67,13 @@ def test_invalid_partition_key_fails():
 
 def test_table_with_no_columns():
     with pytest.raises(ValidationError) as exec_info:
-        ReferenceTable(
+        GeneratedReferenceTable(
             table_name='failing_table',
             table_description='',
             column_names=[],
             partition_keys=[],
+            writer_protocol_version=2,
+            reader_protocol_version=2,
             row_collections=[],
         )
     exec_info.match(" Columns can't be empty ")

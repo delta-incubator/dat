@@ -72,9 +72,9 @@ jobs:
       - name: Write tables
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          git rm -rf out --ignore-unmatch
-          make write-tables
-          make write-schemas
+          git rm -rf out/tables/generated --ignore-unmatch
+          make write-all
+
 
       - name: Commit tables to Git
         uses: stefanzweifel/git-auto-commit-action@v4

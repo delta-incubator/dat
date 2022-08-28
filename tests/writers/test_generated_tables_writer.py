@@ -4,43 +4,59 @@ from typing import List, Tuple
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dat import table_definitions
+from dat import generated_tables
 from dat.model.row_collections import RowCollection
 from dat.model.table import ReferenceTable
 from dat.model.write_mode import WriteMode
-from dat.writers import spark_writer
-from dat.writers.spark_writer import WritePlan
+from dat.writers import generated_tables_writer
+from dat.writers.generated_tables_writer import WritePlan
 
 
-def test_plan_correct(spark_session, reference_table_1_write_plan):
+def test_plan_correct(spark_session, generated_reference_table_1_write_plan):
     assert_plan_steps_match_table(
         spark_session,
-        reference_table_1_write_plan,
-        table_definitions.reference_table_1
+        generated_reference_table_1_write_plan,
+        generated_tables.reference_table_1
     )
 
 
-def test_plan_is_written_correctly(
+def test_table_metadata_is_written_correctly(
     spark_session,
-    reference_table_1_write_plan,
+    generated_reference_table_1_write_plan,
     tmp_path
 ):
-    spark_writer.write(
+    generated_tables_writer.write(
         spark_session,
-        reference_table_1_write_plan,
+        generated_reference_table_1_write_plan,
+        tmp_path.as_posix()
+    )
+    assert_table_metadata_is_correct(
+        tmp_path,
+        generated_reference_table_1_write_plan.table
+    )
+
+
+def test_table_data_is_written_correctly(
+    spark_session,
+    generated_reference_table_1_write_plan,
+    tmp_path
+):
+    generated_tables_writer.write(
+        spark_session,
+        generated_reference_table_1_write_plan,
         tmp_path.as_posix()
     )
     assert_parquet_file_exists_in_right_location(
         tmp_path,
-        reference_table_1_write_plan.table
+        generated_reference_table_1_write_plan.table
     )
     assert_delta_log_exists_in_right_location(
         tmp_path,
-        reference_table_1_write_plan.table
+        generated_reference_table_1_write_plan.table
     )
     assert_delta_table_is_partitioned(
         tmp_path,
-        reference_table_1_write_plan.table
+        generated_reference_table_1_write_plan.table
     )
 
 
@@ -96,3 +112,10 @@ def assert_dataframes_match_row_collections(
             current_df = df
         assert plan_entry[1].collect() == current_df.collect()
         assert plan_entry[0] == row_collection.write_mode
+
+
+def assert_table_metadata_is_correct(base_path, table):
+    observed_table = ReferenceTable.parse_file(
+        (base_path / table.table_name / 'table-metadata.json').as_posix()
+    )
+    assert table == observed_table

@@ -164,4 +164,4 @@ junit
 
 .vscode
 # Out files
-out
+out/tables/generated

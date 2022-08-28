@@ -1,7 +1,7 @@
 import pytest
 
-from dat import table_definitions
-from dat.writers.spark_writer import WritePlanBuilder
+from dat import generated_tables
+from dat.writers.generated_tables_writer import WritePlanBuilder
 
 
 @pytest.fixture(scope='session')
@@ -12,7 +12,7 @@ def plan_builder(spark_session):
 
 
 @pytest.fixture(scope='session')
-def reference_table_1_write_plan(plan_builder):
+def generated_reference_table_1_write_plan(plan_builder):
     return plan_builder.build_write_plan(
-        table_definitions.reference_table_1
+        generated_tables.reference_table_1
     )

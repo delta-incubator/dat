@@ -1,13 +1,15 @@
-from typing import List
+from typing import Sequence
 
 from dat.model.row_collections import RowCollection
-from dat.model.table import ReferenceTable
+from dat.model.table import GeneratedReferenceTable, ReferenceTable
 
-reference_table_1 = ReferenceTable(
+reference_table_1 = GeneratedReferenceTable(
     table_name='reference_table_1',
     table_description='My first table',
     column_names=['letter', 'number', 'a_float'],
     partition_keys=['letter'],
+    reader_protocol_version=2,
+    writer_protocol_version=2,
     row_collections=[
         RowCollection(
             write_mode='overwrite',
@@ -28,11 +30,13 @@ reference_table_1 = ReferenceTable(
 )
 
 
-reference_table_2 = ReferenceTable(
+reference_table_2 = GeneratedReferenceTable(
     table_name='reference_table_2',
     table_description='My first table',
     column_names=['letter', 'number', 'a_float'],
     partition_keys=['letter'],
+    reader_protocol_version=2,
+    writer_protocol_version=2,
     row_collections=[
         RowCollection(
             write_mode='overwrite',
@@ -58,7 +62,7 @@ _all_tables = [
 ]
 
 
-def get_tables(filter: str) -> List[ReferenceTable]:
+def get_tables(filter: str) -> Sequence[ReferenceTable]:
     if filter.lower() == 'all':
         return _all_tables
     names = map(lambda x: x.lower(), filter.split(','))

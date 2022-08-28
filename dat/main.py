@@ -1,12 +1,13 @@
 import json
 import logging
 import os
+import sys
 
 import click
 
-from dat import spark_builder, table_definitions
+from dat import external_tables, generated_tables, spark_builder
 from dat.model.table import ReferenceTable
-from dat.writers import spark_writer
+from dat.writers import generated_tables_writer, metadata_writer
 
 logging.basicConfig(
     level=logging.INFO
@@ -15,6 +16,19 @@ logging.basicConfig(
 
 @click.group()
 def cli():
+    """DAT (Delta Acceptance Testing) CLI helper
+
+        This CLI tool helps performing mundane tasks related to managing
+        reference tables for delta acceptance testing, including:
+
+        - generating tables from python code
+
+        - generating tables metadata in json for external tables
+
+        - generating json schemas of the metadata for code generation
+        in other programming languages
+
+    """
     pass
 
 
@@ -26,40 +40,26 @@ def cli():
 )
 @click.option(
     '--output-path',
-    default='./out/tables',
+    default='./out/tables/generated',
     help='The base folder where the tables should be written'
 )
-def write_reference_tables(table_names, output_path):
+def write_generated_reference_tables(table_names, output_path):
     logging.info(
         'Writing tables to {output_path} using filter={filter}'.format(
             output_path=output_path,
             filter=table_names,
         )
     )
-    reference_tables = table_definitions.get_tables(
+    tables = generated_tables.get_tables(
         table_names
     )
     spark = spark_builder.create_spark_session()
-    write_plan_builder = spark_writer.WritePlanBuilder(
-        spark=spark
+    generated_tables_writer.write_generated_tables(
+        spark,
+        output_path,
+        tables
     )
-    write_plans = map(
-        lambda table: write_plan_builder.build_write_plan(table),
-        reference_tables
-    )
-    for write_plan in write_plans:
-        logging.info(
-            'Writing {table_name}'.format(
-                table_name=write_plan.table.table_name
-            )
-        )
-        os.makedirs(output_path, exist_ok=True)
-        spark_writer.write(
-            spark,
-            write_plan,
-            output_path
-        )
-    logging.info('Reference table successfully written')
+    logging.info('Generated reference tables successfully written')
 
 
 @click.command()
@@ -81,8 +81,31 @@ def write_schemas(output_path):
         )
 
 
-cli.add_command(write_reference_tables)
+@click.command()
+@click.option(
+    '--external-tables-path',
+    default='./out/tables/external',
+    help='The path where external tables should be found'
+)
+def write_external_tables_metadata(external_tables_path):
+    os.makedirs(external_tables_path, exist_ok=True)
+    subfolders = os.listdir(external_tables_path)
+    try:
+        metadata_writer.write_all_metadata(
+            subfolders,
+            external_tables.all
+        )
+    except ValueError as e:
+        click.echo(
+            'Error when writing metadata for external tables'
+        )
+        click.echo(e)
+        sys.exit(-1)
+
+
+cli.add_command(write_generated_reference_tables)
 cli.add_command(write_schemas)
+cli.add_command(write_external_tables_metadata)
 
 if __name__ == '__main__':
     cli()

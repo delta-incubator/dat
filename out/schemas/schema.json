@@ -24,11 +24,25 @@
         "type": "string"
       }
     },
-    "row_collections": {
-      "title": "Row Collections",
+    "reader_protocol_version": {
+      "title": "Reader Protocol Version",
+      "type": "integer"
+    },
+    "writer_protocol_version": {
+      "title": "Writer Protocol Version",
+      "type": "integer"
+    },
+    "schema": {
+      "title": "Schema",
+      "type": "string",
+      "format": "json-string"
+    },
+    "features": {
+      "title": "Features",
+      "default": [],
       "type": "array",
       "items": {
-        "$ref": "#/definitions/RowCollection"
+        "type": "string"
       }
     }
   },
@@ -37,38 +51,7 @@
     "table_description",
     "column_names",
     "partition_keys",
-    "row_collections"
-  ],
-  "definitions": {
-    "WriteMode": {
-      "title": "WriteMode",
-      "description": "An enumeration.",
-      "enum": [
-        "overwrite",
-        "append"
-      ],
-      "type": "string"
-    },
-    "RowCollection": {
-      "title": "RowCollection",
-      "type": "object",
-      "properties": {
-        "write_mode": {
-          "$ref": "#/definitions/WriteMode"
-        },
-        "data": {
-          "title": "Data",
-          "type": "array",
-          "items": {
-            "type": "array",
-            "items": {}
-          }
-        }
-      },
-      "required": [
-        "write_mode",
-        "data"
-      ]
-    }
-  }
+    "reader_protocol_version",
+    "writer_protocol_version"
+  ]
 }

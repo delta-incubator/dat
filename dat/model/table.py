@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, Field, Json, validator
 
 from dat.model.row_collections import RowCollection
 
@@ -12,22 +12,10 @@ class ReferenceTable(BaseModel):
     table_description: str
     column_names: List[str]
     partition_keys: List[str]
-    row_collections: List[RowCollection]
-
-    @validator('row_collections', allow_reuse=True)
-    def data_shape_coherent_with_column_names(cls, row_collections, values):
-        if 'column_names' in values:
-            columns = values['column_names']
-            for row_collection in row_collections:
-                for record in row_collection.data:
-                    if len(record) != len(columns):
-                        raise ValueError(
-                            _wrong_column_name_message.format(
-                                data=record,
-                                columns=columns
-                            )
-                        )
-            return row_collections
+    reader_protocol_version: int
+    writer_protocol_version: int
+    schema_: Optional[Json] = Field(None, alias='schema')
+    features: Optional[List[str]] = []
 
     @validator('partition_keys', allow_reuse=True)
     def partition_key_must_be_columns(cls, partition_keys, values):
@@ -44,6 +32,25 @@ class ReferenceTable(BaseModel):
         if not column_names:
             raise ValueError("Columns can't be empty")
         return column_names
+
+
+class GeneratedReferenceTable(ReferenceTable):
+    row_collections: List[RowCollection] = Field(..., exclude=True)
+
+    @validator('row_collections', allow_reuse=True)
+    def data_shape_coherent_with_column_names(cls, row_collections, values):
+        if 'column_names' in values:
+            columns = values['column_names']
+            for row_collection in row_collections:
+                for record in row_collection.data:
+                    if len(record) != len(columns):
+                        raise ValueError(
+                            _wrong_column_name_message.format(
+                                data=record,
+                                columns=columns
+                            )
+                        )
+            return row_collections
 
     def output_files_path(self, base_path):
         return '{base_path}/{table_name}'.format(

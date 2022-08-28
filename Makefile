@@ -50,11 +50,16 @@ report-coverage: ## Report coverage
 	@${POETRY_RUN} coverage xml
 
 
-write-tables:
-	@${POETRY_RUN} python -m dat.main write-reference-tables
+write-generated-tables:
+	@${POETRY_RUN} python -m dat.main write-generated-reference-tables
 
 write-schemas:
 	@${POETRY_RUN} python -m dat.main write-schemas
+
+write-external-tables-metadata:
+	@${POETRY_RUN} python -m dat.main write-external-tables-metadata
+
+write-all: write-generated-tables write-schemas write-external-tables-metadata
 
 help: ## Show this help
 	@egrep -h '\s##\s' $(MAKEFILE_LIST) \
