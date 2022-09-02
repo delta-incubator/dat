@@ -69,12 +69,12 @@ jobs:
         env:
           PY_COLORS: 1
       
-      - name: Write tables
+      - name: Reset generated tables
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          git rm -rf out/tables/generated --ignore-unmatch
-          make write-all
+        run: make reset-generated-tables
 
+      - name: Write tables
+        run: make write-all
 
       - name: Commit tables to Git
         uses: stefanzweifel/git-auto-commit-action@v4
