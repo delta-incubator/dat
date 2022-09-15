@@ -90,9 +90,15 @@ def write_schemas(output_path):
 def write_external_tables_metadata(external_tables_path):
     os.makedirs(external_tables_path, exist_ok=True)
     subfolders = os.listdir(external_tables_path)
+    subfolders_abspath = [
+        os.path.join(
+            external_tables_path, subfolder
+        )
+        for subfolder in subfolders
+    ]
     try:
         metadata_writer.write_all_metadata(
-            subfolders,
+            subfolders_abspath,
             external_tables.all
         )
     except ValueError as e:
