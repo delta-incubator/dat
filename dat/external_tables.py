@@ -9,6 +9,6 @@ example_table = ReferenceTable(
     writer_protocol_version=2,
 )
 
-all = [
-    example_table
+all_tables = [
+    example_table,
 ]

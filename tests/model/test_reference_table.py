@@ -17,14 +17,14 @@ def test_data_has_more_columns_than_table_fails():
             row_collections=[
                 RowCollection(
                     write_mode='append',
-                    data=[
-                        (1, 2, 3)
-                    ]
+                    rows=[
+                        (1, 2, 3),
+                    ],
                 ),
-            ]
+            ],
         )
-    exec_info.match(
-        ".*Data \\(1, 2, 3\\) does not have the correct number of columns \\['a', 'b'\\].*"  # noqa: W605 E501
+    exec_info.match(  # noqa: WPS441
+        ".*Data \\(1, 2, 3\\) does not have the correct number of columns \\['a', 'b'\\].*",  # noqa: W605 E501 WPS342
     )
 
 
@@ -40,14 +40,14 @@ def test_data_has_fewer_columns_than_table_fails():
             row_collections=[
                 RowCollection(
                     write_mode='append',
-                    data=[
-                        (1,)
-                    ]
+                    rows=[
+                        (1,),
+                    ],
                 ),
-            ]
+            ],
         )
-    exec_info.match(
-        ".*Data \\(1,\\) does not have the correct number of columns \\['a', 'b'\\].*"  # noqa: W605 E501
+    exec_info.match(  # noqa: WPS441
+        ".*Data \\(1,\\) does not have the correct number of columns \\['a', 'b'\\].*",  # noqa: W605 E501 WPS342
     )
 
 
@@ -62,7 +62,7 @@ def test_invalid_partition_key_fails():
             reader_protocol_version=2,
             data=[('1', '2')],
         )
-    exec_info.match('Partition keys should all be columns of the table')
+    exec_info.match('Partition keys should all be columns of the table')  # noqa: WPS441 E501
 
 
 def test_table_with_no_columns():
@@ -76,4 +76,4 @@ def test_table_with_no_columns():
             reader_protocol_version=2,
             row_collections=[],
         )
-    exec_info.match(" Columns can't be empty ")
+    exec_info.match(" Columns can't be empty ")  # noqa: WPS441

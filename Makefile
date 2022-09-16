@@ -3,13 +3,13 @@
 POETRY_RUN := poetry run
 BLUE=\033[0;34m
 NC=\033[0m # No Color
-PROJ='dat'
+PROJ=dat
 
 .PHONY: update install help autolint lint-mypy lint-base lint report-coverage lint-bandit lint-flake8 test
 
 autolint: ## Autolint the code
 	@echo "\n${BLUE}Running autolinting...${NC}\n"
-	@${POETRY_RUN} autopep8 ${PROJ}/* -r -i --experimental
+	@${POETRY_RUN} autopep8 ${PROJ}/* tests/* -r -i --experimental
 	@${POETRY_RUN} isort ${PROJ} tests/
 	@${POETRY_RUN} unify -r -i ${PROJ} tests/
 
@@ -56,10 +56,10 @@ write-generated-tables:
 write-schemas:
 	@${POETRY_RUN} python -m dat.main write-schemas
 
-write-external-tables-metadata:
-	@${POETRY_RUN} python -m dat.main write-external-tables-metadata
+create-external-tables:
+	@${POETRY_RUN} python -m dat.main create-external-tables
 
-write-all: write-generated-tables write-schemas write-external-tables-metadata
+write-all: write-generated-tables write-schemas create-external-tables
 
 help: ## Show this help
 	@egrep -h '\s##\s' $(MAKEFILE_LIST) \

@@ -13,20 +13,20 @@ reference_table_1 = GeneratedReferenceTable(
     row_collections=[
         RowCollection(
             write_mode='overwrite',
-            data=[
+            rows=[
                 ('a', 1, 1.1),
                 ('b', 2, 2.2),
-                ('c', 3, 3.3)
-            ]
+                ('c', 3, 3.3),
+            ],
         ),
         RowCollection(
             write_mode='append',
-            data=[
+            rows=[
                 ('d', 4, 4.4),
-                ('e', 5, 5.5)
-            ]
+                ('e', 5, 5.5),
+            ],
         ),
-    ]
+    ],
 )
 
 
@@ -40,34 +40,37 @@ reference_table_2 = GeneratedReferenceTable(
     row_collections=[
         RowCollection(
             write_mode='overwrite',
-            data=[
+            rows=[
                 ('a', 1, 1.1),
                 ('b', 2, 2.2),
-                ('c', 3, 3.3)
-            ]
+                ('c', 3, 3.3),
+            ],
         ),
         RowCollection(
             write_mode='append',
-            data=[
+            rows=[
                 ('a', 4, 4.4),
-                ('e', 5, 5.5)
-            ]
+                ('e', 5, 5.5),
+            ],
         ),
-    ]
+    ],
 )
 
 _all_tables = [
     reference_table_1,
-    reference_table_2
+    reference_table_2,
 ]
 
 
-def get_tables(filter: str) -> Sequence[ReferenceTable]:
-    if filter.lower() == 'all':
+def get_tables(included_tablenames: str) -> Sequence[ReferenceTable]:
+    if included_tablenames.lower() == 'all':
         return _all_tables
-    names = map(lambda x: x.lower(), filter.split(','))
-    results = []
+    names = [
+        tablename.lower()
+        for tablename in included_tablenames.split(',')
+    ]
+    included_tables = []
     for table in _all_tables:
         if table.table_name in names:
-            results.append(table)
-    return results
+            included_tables.append(table)
+    return included_tables

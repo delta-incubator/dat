@@ -4,11 +4,11 @@ from typing import List, Tuple
 from pydantic import BaseModel
 
 
-class WriteMode(str, Enum):
+class WriteMode(str, Enum):  # noqa: WPS600
     overwrite = 'overwrite'
     append = 'append'
 
 
 class RowCollection(BaseModel):
     write_mode: WriteMode
-    data: List[Tuple]
+    rows: List[Tuple]
