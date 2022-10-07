@@ -163,5 +163,5 @@ cython_debug/
 junit
 
 .vscode
-# Out files
-out/tables/generated
+*.parquet.crc
+*.json.crc

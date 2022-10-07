@@ -1,0 +1,16 @@
+{
+  "table_name": "reference_table_2",
+  "table_description": "My first table",
+  "column_names": [
+    "letter",
+    "number",
+    "a_float"
+  ],
+  "partition_keys": [
+    "letter"
+  ],
+  "reader_protocol_version": 2,
+  "writer_protocol_version": 2,
+  "schema_": null,
+  "features": []
+}
