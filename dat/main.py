@@ -8,7 +8,7 @@ import click
 
 from dat import external_tables, generated_tables, spark_builder
 from dat.model.table import ReferenceTable
-from dat.writers import external_tables_writer, generated_tables_writer
+from dat.writers import create_reference_tables, external_tables_writer, generated_tables_writer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,34 +35,41 @@ def cli():
     pass  # noqa: WPS420
 
 
+# @click.command()
+# @click.option(
+#     '--table-names',
+#     default='all',
+#     help='The reference table names to create. Can be a comma separated list or all',  # noqa: E501
+# )
+# @click.option(
+#     '--output-path',
+#     default='./out/tables/generated',
+#     help='The base folder where the tables should be written',
+# )
+# def write_generated_reference_tables(table_names, output_path):
+#     logging.info(
+#         'Writing tables to {output_path} using filter={filter}'.format(
+#             output_path=output_path,
+#             filter=table_names,
+#         ),
+#     )
+#     tables = generated_tables.get_tables(
+#         table_names,
+#     )
+#     spark = spark_builder.create_spark_session()
+#     generated_tables_writer.write_generated_tables(
+#         spark,
+#         output_path,
+#         tables,
+#     )
+#     logging.info('Generated reference tables successfully written')
+
+
 @click.command()
-@click.option(
-    '--table-names',
-    default='all',
-    help='The reference table names to create. Can be a comma separated list or all',  # noqa: E501
-)
-@click.option(
-    '--output-path',
-    default='./out/tables/generated',
-    help='The base folder where the tables should be written',
-)
-def write_generated_reference_tables(table_names, output_path):
-    logging.info(
-        'Writing tables to {output_path} using filter={filter}'.format(
-            output_path=output_path,
-            filter=table_names,
-        ),
-    )
-    tables = generated_tables.get_tables(
-        table_names,
-    )
-    spark = spark_builder.create_spark_session()
-    generated_tables_writer.write_generated_tables(
-        spark,
-        output_path,
-        tables,
-    )
-    logging.info('Generated reference tables successfully written')
+def write_generated_reference_tables():
+    create_reference_tables.create_reference_table_1()
+    create_reference_tables.create_reference_table_2()
+    create_reference_tables.create_reference_table_3()
 
 
 @click.command()
