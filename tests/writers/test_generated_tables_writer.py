@@ -53,10 +53,6 @@ def test_table_data_is_written_correctly(
         tmp_path,
         generated_reference_table_1_write_plan.table,
     )
-    assert_delta_table_is_partitioned(
-        tmp_path,
-        generated_reference_table_1_write_plan.table,
-    )
 
 
 def assert_parquet_file_exists_in_right_location(base_path, table):
