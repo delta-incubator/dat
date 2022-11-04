@@ -104,3 +104,32 @@ def create_reference_table_3():
     actual2.toPandas().to_parquet(f"{expected_path}/v2/table_content.parquet")
     os.makedirs(f"{expected_path}/latest")
     actual2.toPandas().to_parquet(f"{expected_path}/latest/table_content.parquet")
+
+
+def create_reference_table_4():
+    # name: reference_table_4
+    # description: A table which has had a schema change with overwriteSchema set to True
+    columns = ["letter", "number"]
+    data = [("a", 1), ("b", 2), ("c", 3)]
+    rdd = spark.sparkContext.parallelize(data)
+    df = rdd.toDF(columns)
+
+    delta_table_path = "out/tables/generated/reference_table_4/delta"
+    expected_path = "out/tables/generated/reference_table_4/expected"
+
+    df.repartition(1).write.format("delta").save(delta_table_path)
+    actual0 = spark.read.format("delta").load(delta_table_path)
+    os.makedirs(f"{expected_path}/v0")
+    actual0.toPandas().to_parquet(f"{expected_path}/v0/table_content.parquet")
+
+    columns = ["num1", "num2"]
+    data = [(22, 33), (44, 55), (66, 77)]
+    rdd = spark.sparkContext.parallelize(data)
+    df = rdd.toDF(columns)
+
+    df.repartition(1).write.mode("overwrite").option("overwriteSchema", True).format("delta").save(delta_table_path)
+    actual1 = spark.read.format("delta").load(delta_table_path)
+    os.makedirs(f"{expected_path}/v1")
+    actual1.toPandas().to_parquet(f"{expected_path}/v1/table_content.parquet")
+    os.makedirs(f"{expected_path}/latest")
+    actual1.toPandas().to_parquet(f"{expected_path}/latest/table_content.parquet")

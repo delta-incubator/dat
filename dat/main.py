@@ -70,6 +70,7 @@ def write_generated_reference_tables():
     create_reference_tables.create_reference_table_1()
     create_reference_tables.create_reference_table_2()
     create_reference_tables.create_reference_table_3()
+    create_reference_tables.create_reference_table_4()
 
 
 @click.command()
