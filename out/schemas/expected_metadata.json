@@ -1,0 +1,31 @@
+{
+  "title": "ExpectedMetadata",
+  "type": "object",
+  "properties": {
+    "config": {
+      "title": "Config",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "min_reader_version": {
+      "title": "Min Reader Version",
+      "type": "integer"
+    },
+    "min_writer_version": {
+      "title": "Min Writer Version",
+      "type": "integer"
+    },
+    "table_schema_json": {
+      "title": "Table Schema Json",
+      "type": "string"
+    }
+  },
+  "required": [
+    "config",
+    "min_reader_version",
+    "min_writer_version",
+    "table_schema_json"
+  ]
+}

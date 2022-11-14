@@ -1,0 +1,9 @@
+{
+  "name": "multi_partitioned",
+  "description": "A table with multiple partitioning columns",
+  "check_versions": [
+    0,
+    1,
+    2
+  ]
+}

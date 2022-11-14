@@ -1,0 +1,26 @@
+{
+  "title": "TableMetadata",
+  "type": "object",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "check_versions": {
+      "title": "Check Versions",
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "check_versions"
+  ]
+}
