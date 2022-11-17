@@ -1,8 +1,4 @@
 {
   "name": "basic_partitioned",
-  "description": "A basic partitioned table",
-  "check_versions": [
-    0,
-    1
-  ]
+  "description": "A basic partitioned table"
 }

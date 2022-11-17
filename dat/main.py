@@ -1,11 +1,12 @@
 import logging
 import os
+import shutil
 from pathlib import Path
 
 import click
 
 from dat import generated_tables
-from dat.models import ExpectedMetadata, TableMetadata
+from dat.models import TableVersionMetadata, TestCaseInfo
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +33,9 @@ def cli():
 
 @click.command()
 def write_generated_reference_tables():
+    out_base = Path('out/reader_tests/generated')
+    shutil.rmtree(out_base)
+
     for metadata, create_table in generated_tables.registered_reference_tables:
         logging.info("Writing table '%s'", metadata.name)
         create_table()
@@ -42,11 +46,11 @@ def write_model_schemas():
     out_base = Path('out/schemas')
     os.makedirs(out_base)
 
-    with open(out_base / 'table_metadata.json', 'w') as f:
-        f.write(TableMetadata.schema_json(indent=2))
+    with open(out_base / 'TestCaseInfo.json', 'w') as f:
+        f.write(TestCaseInfo.schema_json(indent=2))
 
-    with open(out_base / 'expected_metadata.json', 'w') as f:
-        f.write(ExpectedMetadata.schema_json(indent=2))
+    with open(out_base / 'TableVersionMetadata.json', 'w') as f:
+        f.write(TableVersionMetadata.schema_json(indent=2))
 
 
 cli.add_command(write_generated_reference_tables)

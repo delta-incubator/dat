@@ -1,6 +1,6 @@
 {
-  "config": {},
+  "version": 1,
+  "properties": {},
   "min_reader_version": 1,
-  "min_writer_version": 2,
-  "table_schema_json": "{}"
+  "min_writer_version": 2
 }

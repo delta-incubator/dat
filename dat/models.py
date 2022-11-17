@@ -1,15 +1,14 @@
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
 OUT_ROOT = Path('./out/reader_tests/generated/')
 
 
-class TableMetadata(BaseModel):
+class TestCaseInfo(BaseModel):
     name: str
     description: str
-    check_versions: List[int]
 
     @property
     def root(self) -> Path:
@@ -27,8 +26,8 @@ class TableMetadata(BaseModel):
         return str(self.expected_root(version) / 'table_content.parquet')
 
 
-class ExpectedMetadata(BaseModel):
-    config: Dict[str, str]
+class TableVersionMetadata(BaseModel):
+    version: int
+    properties: Dict[str, str]
     min_reader_version: int
     min_writer_version: int
-    table_schema_json: str

@@ -1,5 +1,5 @@
 {
-  "title": "TableMetadata",
+  "title": "TestCaseInfo",
   "type": "object",
   "properties": {
     "name": {
@@ -9,18 +9,10 @@
     "description": {
       "title": "Description",
       "type": "string"
-    },
-    "check_versions": {
-      "title": "Check Versions",
-      "type": "array",
-      "items": {
-        "type": "integer"
-      }
     }
   },
   "required": [
     "name",
-    "description",
-    "check_versions"
+    "description"
   ]
 }
