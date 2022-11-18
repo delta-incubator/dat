@@ -1,9 +1,14 @@
+from decimal import Decimal
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
+from pathlib import Path
+import random
 from typing import Callable, List, Tuple
 
 from delta.tables import DeltaTable
+import pyspark.sql
 from pyspark.sql import SparkSession
+import pyspark.sql.types as types
 
 from dat.models import TableVersionMetadata, TestCaseInfo
 from dat.spark_builder import get_spark_session
@@ -153,6 +158,23 @@ def create_multi_partitioned(case: TestCaseInfo, spark: SparkSession):
 
 
 @reference_table(
+    name="multi_partitioned_2",
+    description="Multiple levels of partitioning, with boolean, timestamp, and decimal partition columns"
+)
+def create_multi_partitioned_2(case: TestCaseInfo, spark: SparkSession):
+    columns = ['bool', 'time', 'amount', 'int']
+    partition_columns = ['bool', 'time', 'amount']
+    data = [
+        (True, datetime(1970, 1, 1), Decimal("200.00"), 1),
+        (True, datetime(1970, 1, 1, 12, 30), Decimal("200.00"), 2),
+        (False, datetime(1970, 1, 2, 8, 45),  Decimal("12.00"), 3)
+    ]
+    df = spark.createDataFrame(data, schema=columns)
+    df.repartition(1).write.format('delta').partitionBy(
+        *partition_columns).save(case.delta_root)
+
+
+@reference_table(
     name='with_schema_change',
     description='Table which has schema change using overwriteSchema=True.',
 )
@@ -171,3 +193,110 @@ def with_schema_change(case: TestCaseInfo, spark: SparkSession):
         'overwriteSchema', True).format('delta').save(
         case.delta_root)
     save_expected(case)
+
+@reference_table(
+    name='all_primitive_types',
+    description='Table containing all non-nested types',
+)
+def create_all_primitive_types(case: TestCaseInfo, spark: SparkSession):
+    schema = types.StructType([
+        types.StructField("utf8", types.StringType()),
+        types.StructField("int64", types.LongType()),
+        types.StructField("int32", types.IntegerType()),
+        types.StructField("int16", types.ShortType()),
+        types.StructField("int8", types.ByteType()),
+        types.StructField("float32", types.FloatType()),
+        types.StructField("float64", types.DoubleType()),
+        types.StructField("bool", types.BooleanType()),
+        types.StructField("binary", types.BinaryType()),
+        types.StructField("decimal", types.DecimalType(5, 3)),
+        types.StructField("date32", types.DateType()),
+        types.StructField("timestamp", types.TimestampType()),
+    ])
+
+    df = spark.createDataFrame([
+        (
+            str(i),
+            i,
+            i,
+            i,
+            i,
+            float(i),
+            float(i),
+            i % 2 == 0,
+            bytes(i),
+            Decimal("10.000") + i,
+            date(1970, 1, 1) + timedelta(days=i),
+            datetime(1970, 1, 1) + timedelta(hours=i)
+        )
+        for i in range(5)
+    ], schema=schema)
+
+    df.repartition(1).write.format('delta').save(case.delta_root)
+
+
+@reference_table(
+    name='nested_types',
+    description='Table containing various nested types',
+)
+def create_nested_types(case: TestCaseInfo, spark: SparkSession):
+    schema = types.StructType([
+        types.StructField("struct", types.StructType([
+            types.StructField("float64", types.DoubleType()),
+            types.StructField("bool", types.BooleanType()),
+        ])),
+        types.StructField("array", types.ArrayType(types.ShortType())),
+        types.StructField("map", types.MapType(types.StringType(), types.IntegerType())),
+    ])
+
+    df = spark.createDataFrame([
+        (
+            { "float64": float(i), "bool": i % 2 == 0 },
+            list(range(i + 1)),
+            { str(i): i for i in range(i) }
+        )
+        for i in range(5)
+    ], schema=schema)
+
+    df.repartition(1).write.format('delta').save(case.delta_root)
+
+
+def get_sample_data(spark: SparkSession, seed: int=42, nrows: int=5) -> pyspark.sql.DataFrame:
+    # Use seed to get consistent data between runs, for reproducibility
+    random.seed(seed)
+    return spark.createDataFrame([
+        (
+            random.choice(["a", "b", "c", None]),
+            random.randint(0, 1000),
+            date(random.randint(1970, 2020), random.randint(1, 12), 1)
+        )
+        for i in range(nrows)
+    ], schema=["letter", "int", "date"])
+
+
+@reference_table(
+    name='with_checkpoint',
+    description='Table with a checkpoint',
+)
+def create_with_checkpoint(case: TestCaseInfo, spark: SparkSession):
+    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+
+    df = get_sample_data(spark)
+    
+    table = (DeltaTable.create(spark)
+        .location(str(Path(case.delta_root).absolute()))
+        .addColumns(df.schema)
+        .property("delta.checkpointInterval", "2")
+        .property("delta.logRetentionDuration", "0 days")
+        .execute())
+
+    for i in range(5):
+        df = get_sample_data(spark, seed=i, nrows=5)
+        df.repartition(1).write.format('delta').mode('overwrite').save(case.delta_root)
+
+    assert any(path.suffixes == [".checkpoint", ".parquet"]
+               for path in  (Path(case.delta_root) / "_delta_log").iterdir())
+
+    table.vacuum(retentionHours=0)
+
+

@@ -2,6 +2,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from typing import Optional
 
 import click
 
@@ -32,13 +33,26 @@ def cli():
 
 
 @click.command()
-def write_generated_reference_tables():
-    out_base = Path('out/reader_tests/generated')
-    shutil.rmtree(out_base, ignore_errors=True)
+@click.option('--table-name')
+def write_generated_reference_tables(table_name: Optional[str]):
+    if table_name:
+        for metadata, create_table in generated_tables.registered_reference_tables:
+            if metadata.name == table_name:
+                logging.info("Writing table '%s'", metadata.name)
+                out_base = Path('out/reader_tests/generated') / table_name
+                shutil.rmtree(out_base, ignore_errors=True)
 
-    for metadata, create_table in generated_tables.registered_reference_tables:
-        logging.info("Writing table '%s'", metadata.name)
-        create_table()
+                create_table()
+                break
+        else:
+            raise ValueError(f"Could not find generated table named '{table_name}'")
+    else:
+        out_base = Path('out/reader_tests/generated')
+        shutil.rmtree(out_base)
+
+        for metadata, create_table in generated_tables.registered_reference_tables:
+            logging.info("Writing table '%s'", metadata.name)
+            create_table()
 
 
 @click.command()
