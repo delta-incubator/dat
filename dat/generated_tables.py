@@ -37,7 +37,7 @@ def save_expected(case: TestCaseInfo, as_latest=False) -> None:
 
     df.toPandas().to_parquet(case.expected_path(version))
 
-    out_path = case.expected_root(version) / 'expected_metadata.json'
+    out_path = case.expected_root(version) / 'table_version_metadata.json'
     with open(out_path, 'w') as f:
         f.write(version_metadata.json(indent=2))
 
@@ -53,7 +53,7 @@ def reference_table(name: str, description: str):
             spark = get_spark_session()
             create_table(case, spark)
 
-            with open(case.root / 'table_metadata.json', 'w') as f:
+            with open(case.root / 'test_case_info.json', 'w') as f:
                 f.write(case.json(indent=2, separators=(',', ': ')))
 
             # Write out latest
