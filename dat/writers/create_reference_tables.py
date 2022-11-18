@@ -133,3 +133,33 @@ def create_reference_table_4():
     actual1.toPandas().to_parquet(f"{expected_path}/v1/table_content.parquet")
     os.makedirs(f"{expected_path}/latest")
     actual1.toPandas().to_parquet(f"{expected_path}/latest/table_content.parquet")
+
+
+def create_writer_reference_table_1():
+    columns = ["letter", "number", "a_float"]
+    
+    data = [("a", 1, 1.1), ("b", 2, 2.2), ("c", 3, 3.3)]
+    rdd = spark.sparkContext.parallelize(data)
+    df = rdd.toDF(columns)
+
+    delta_table_path = "out/tables/writer/reference_table_1/delta"
+    expected_path = "out/tables/writer/reference_table_1/expected"
+    other_path = "out/tables/writer/reference_table_1/other"
+    os.makedirs(expected_path)
+    os.makedirs(other_path)
+
+    df.repartition(1).write.format("delta").save(delta_table_path)
+
+    data = [("d", 4, 4.4), ("e", 5, 5.5)]
+    rdd = spark.sparkContext.parallelize(data)
+    df = rdd.toDF(columns)
+
+    # data that will be appended in the integration test
+    rdd = spark.sparkContext.parallelize([("z", 9, 9.9)])
+    append_df = rdd.toDF(["letter", "number", "a_float"])
+    append_df.toPandas().to_parquet(f"{other_path}/append_content_1.parquet")
+
+    df.repartition(1).write.format("delta").mode("append").save(delta_table_path)
+    os.makedirs(f"{expected_path}/post_append")
+    actual = spark.read.format("delta").load(delta_table_path)
+    actual.union(append_df).toPandas().to_parquet(f"{expected_path}/post_append/table_content.parquet")
