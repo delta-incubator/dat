@@ -44,7 +44,7 @@ def write_generated_reference_tables():
 @click.command()
 def write_model_schemas():
     out_base = Path('out/schemas')
-    os.makedirs(out_base)
+    os.makedirs(out_base, exist_ok=True)
 
     with open(out_base / 'TestCaseInfo.json', 'w') as f:
         f.write(TestCaseInfo.schema_json(indent=2))

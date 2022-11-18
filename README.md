@@ -25,7 +25,7 @@ All reader test cases are stored in the directory `out/reader_tests/generated`. 
       |-- table_content.parquet
 ```
 
-Each test case is a folder, named for it's test. It contains:
+Each test case is a folder, named for its test. It contains:
 
  * `test_case_info.json`: document that provides the names and human-friendly description of the test.
  * `delta`: the root directory of the Delta Lake table.
@@ -41,7 +41,7 @@ To test a reader, readers should first identify the test cases:
 Then for each test case:
 
  1. Load the corresponding version of the Delta table
- 2. Verify the metadata read from the delta table matches that in the expected_metadata.json
+ 2. Verify the metadata read from the Delta table matches that in the `table_version_metadata.json`. For example, verify that the connector parsed the correct `min_reader_version` from the Delta log. This step may be skipped if the reader connector does not expose such details in its public API.
  3. Attempt to read the Delta table's data:
    a. If the Delta table uses a version unsupported by the reader connector (as determined from `table_version_metadata.json`), verify an appropriate error is returned.
    b. If the Delta table is supported by the reader connector, assert that the read data is equal to the data read from `table_content.parquet`.
@@ -51,6 +51,11 @@ For an example implementation of this, see the example PySpark tests in `tests/p
 ## Testing Writers
 
 TBD.
+
+## Models
+
+The test cases contain several JSON files to be read by connector tests. To make it easier to read them, we provide [JSON schemas](https://json-schema.org/) for each of the file types in `out/schemas/`. They can be read to understand
+the expected structure, or even used to generate data structures in your preferred programming language.
 
 ## Contributing
 
