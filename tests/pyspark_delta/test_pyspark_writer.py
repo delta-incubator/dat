@@ -20,35 +20,17 @@ def test_reference_table_1_append():
     os.makedirs("tmp")
 
     # copy over existing reference table
-    shutil.copytree("out/tables/generated/reference_table_1/delta", "tmp/delta")
-    df = spark.read.format("delta").load("tmp/delta")
-    # +------+------+-------+                                                         
-    # |letter|number|a_float|
-    # +------+------+-------+
-    # |     a|     1|    1.1|
-    # |     b|     2|    2.2|
-    # |     c|     3|    3.3|
-    # |     d|     4|    4.4|
-    # |     e|     5|    5.5|
-    # +------+------+-------+
+    shutil.copytree("out/tables/writer/reference_table_1", "tmp/reference_table_1")
+    df = spark.read.format("delta").load("tmp/reference_table_1/delta")
     
     # append data to the reference table
-    rdd = spark.sparkContext.parallelize([("z", 9, 9.9)])
-    df = rdd.toDF(["letter", "number", "a_float"])
-    df.write.format("delta").mode("append").save("tmp/delta")
+    df = spark.read.format("parquet").load("tmp/reference_table_1/other/append_content_1.parquet")
+    df.write.format("delta").mode("append").save("tmp/reference_table_1/delta")
 
-    # created expected content
-    rdd = spark.sparkContext.parallelize([
-        ("a", 1, 1.1),
-        ("b", 2, 2.2),
-        ("c", 3, 3.3),
-        ("d", 4, 4.4),
-        ("e", 5, 5.5),
-        ("z", 9, 9.9),
-    ])
-    expected_df = rdd.toDF(["letter", "number", "a_float"])    
+    # fetch expected content  
+    expected_df = spark.read.format("parquet").load("tmp/reference_table_1/expected/post_append/table_content.parquet")
 
     # make assertions & cleanup
-    actual_df = spark.read.format("delta").load("tmp/delta")
+    actual_df = spark.read.format("delta").load("tmp/reference_table_1/delta")
     chispa.assert_df_equality(actual_df, expected_df, ignore_row_order=True)
     shutil.rmtree('tmp')
