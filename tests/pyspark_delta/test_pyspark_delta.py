@@ -24,7 +24,7 @@ cases: List[ReadCase] = []
 
 for path in (TEST_ROOT / 'generated').iterdir():
     if path.is_dir():
-        with open(path / 'table_metadata.json') as f:
+        with open(path / 'test_case_info.json') as f:
             case_metadata = json.load(f)
 
         for version_path in (path / 'expected').iterdir():
@@ -36,7 +36,7 @@ for path in (TEST_ROOT / 'generated').iterdir():
                 else:
                     continue
 
-                with open(version_path / 'expected_metadata.json') as f:
+                with open(version_path / 'table_version_metadata.json') as f:
                     expected_metadata = json.load(f)
 
                 case = ReadCase(
