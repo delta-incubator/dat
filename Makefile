@@ -25,7 +25,8 @@ lint-bandit: ## Run bandit
 	@echo "\n${BLUE}Running bandit...${NC}\n"
 	@${POETRY_RUN} bandit -r ${PROJ}
 
-lint-base: lint-flake8 lint-bandit ## Just run the linters without autolinting
+#lint-base: lint-flake8 lint-bandit ## Just run the linters without autolinting
+lint-base: lint-flake8 # TODO: Can we drop bandit?
 
 lint: autolint lint-base lint-mypy ## Autolint and code linting
 

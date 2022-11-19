@@ -45,7 +45,8 @@ def write_generated_reference_tables(table_name: Optional[str]):
                 create_table()
                 break
         else:
-            raise ValueError(f"Could not find generated table named '{table_name}'")
+            raise ValueError(
+                f"Could not find generated table named '{table_name}'")
     else:
         out_base = Path('out/reader_tests/generated')
         shutil.rmtree(out_base)
