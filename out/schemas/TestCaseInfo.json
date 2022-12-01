@@ -1,0 +1,18 @@
+{
+  "title": "TestCaseInfo",
+  "type": "object",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "description"
+  ]
+}

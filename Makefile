@@ -53,13 +53,10 @@ report-coverage: ## Report coverage
 write-generated-tables:
 	@${POETRY_RUN} python -m dat.main write-generated-reference-tables
 
-write-schemas:
-	@${POETRY_RUN} python -m dat.main write-schemas
+write-model-schemas:
+	@${POETRY_RUN} python -m dat.main write-model-schemas
 
-create-external-tables:
-	@${POETRY_RUN} python -m dat.main create-external-tables
-
-write-all: write-generated-tables write-schemas create-external-tables
+write-all: write-generated-tables write-model-schemas
 
 help: ## Show this help
 	@egrep -h '\s##\s' $(MAKEFILE_LIST) \
