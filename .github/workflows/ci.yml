@@ -67,6 +67,8 @@ jobs:
       # they'll be installed and working.
       - run: poetry install --no-interaction
 
-      # And finally run tests. I'm using pytest and all my pytest config is in my `pyproject.toml`
-      # so this line is super-simple. But it could be as complex as you need.
+      - run: make lint
+
+      - run: make write-generated-tables
+
       - run: make test

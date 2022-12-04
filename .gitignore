@@ -165,3 +165,6 @@ junit
 .vscode
 *.parquet.crc
 *.json.crc
+
+# Out folder
+out

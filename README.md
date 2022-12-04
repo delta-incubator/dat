@@ -2,7 +2,15 @@
 
 The DAT project provides test cases to verify different implementations of Delta Lake all behave consistently. The expected behavior is described in the [Delta Lake Protocol](https://github.com/delta-io/delta/blob/master/PROTOCOL.md).
 
-The test cases in this repo are represented using a standard file structure, so they don't require any particular dependency or programming language. Delta implementations can clone (or submodule) this repo and run their integration tests against the tables located in the `out` directory.
+The tests cases are packaged into [releases](https://github.com/delta-incubator/dat/releases), which can be downloaded into CI jobs for automatic testing. The test cases in this repo are represented using a standard file structure, so they don't require any particular dependency or programming language.
+
+To download and unpack:
+
+```
+VERSION=0.0.1
+curl -OL https://github.com/delta-incubator/date/releases/download/v$VERSION/deltalake-dat-v$VERSION.tar.gz
+tar -xzvf deltalake-dat-v$VERSION.tar.gz
+```
 
 ## Testing Readers
 

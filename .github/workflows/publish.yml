@@ -1,0 +1,52 @@
+name: Publish DAT Tables
+
+on:
+  push:
+    tags:
+     - '*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+
+      - uses: snok/install-poetry@v1
+        with:
+          version: 1.1.12
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - run: poetry install --no-interaction
+
+      - run: make write-generated-tables
+
+      - run: make test
+
+      - name: Bundle tables
+        run: tar -czvf out.tar.gz out
+      
+      - name: Create release
+        uses: actions/create-release@v1
+        id: create_release
+        with:
+          draft: true
+          prerelease: false
+          release_name: Delta Lake DAT Release ${{ github.ref }}
+          tag_name: ${{ github.ref }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      
+      - name: Upload tables
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: out.tar.gz
+          asset_name: deltalake-dat-${{ github.ref }}.tar.gz
+          asset_content_type: application/gzip

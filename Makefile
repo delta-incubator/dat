@@ -19,7 +19,7 @@ lint-mypy: ## Just run mypy
 
 lint-flake8: ## Run the flake8 linter
 	@echo "\n${BLUE}Running flake8...${NC}\n"
-	@${POETRY_RUN} flake8 .
+	@${POETRY_RUN} flake8 ${PROJ} tests/
 
 lint-bandit: ## Run bandit
 	@echo "\n${BLUE}Running bandit...${NC}\n"
