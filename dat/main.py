@@ -49,7 +49,7 @@ def write_generated_reference_tables(table_name: Optional[str]):
                 f"Could not find generated table named '{table_name}'")
     else:
         out_base = Path('out/reader_tests/generated')
-        shutil.rmtree(out_base)
+        shutil.rmtree(out_base, ignore_errors=True)
 
         for metadata, create_table in generated_tables.registered_reference_tables:
             logging.info("Writing table '%s'", metadata.name)
