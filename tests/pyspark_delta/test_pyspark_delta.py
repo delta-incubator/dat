@@ -69,4 +69,9 @@ def test_readers_dat(spark_session, case: ReadCase):
         expected_df = spark_session.read.format('parquet').load(
             str(case.parquet_root) + '/*.parquet')
 
-        chispa.assert_df_equality(actual_df, expected_df)
+        if 'pk' in actual_df.columns:
+            actual_df = actual_df.orderBy('pk')
+            expected_df = expected_df.orderBy('pk')
+            chispa.assert_df_equality(actual_df, expected_df)
+        else:
+            chispa.assert_df_equality(actual_df, expected_df, ignore_row_order=True)

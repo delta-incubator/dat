@@ -40,7 +40,7 @@ def save_expected(case: TestCaseInfo, as_latest=False) -> None:
     # Need to ensure directory exists first
     os.makedirs(case.expected_root(version))
 
-    df.toPandas().to_parquet(case.expected_path(version))
+    df.write.parquet(case.expected_path(version))
 
     out_path = case.expected_root(version) / 'table_version_metadata.json'
     with open(out_path, 'w') as f:
@@ -126,8 +126,6 @@ def create_multi_partitioned(case: TestCaseInfo, spark: SparkSession):
         ('b', date(1970, 1, 2), b'world', 3)
     ]
     df = spark.createDataFrame(data, schema=columns)
-    # rdd = spark.sparkContext.parallelize(data)
-    # df = rdd.toDF(columns)
     schema = df.schema
 
     df.repartition(1).write.format('delta').partitionBy(
@@ -242,22 +240,27 @@ def create_all_primitive_types(case: TestCaseInfo, spark: SparkSession):
     description='Table containing various nested types',
 )
 def create_nested_types(case: TestCaseInfo, spark: SparkSession):
-    schema = types.StructType([types.StructField(
-        'struct', types.StructType(
-            [types.StructField(
-                'float64', types.DoubleType()),
-             types.StructField(
-                'bool', types.BooleanType()), ])),
+    schema = types.StructType([
         types.StructField(
-        'array', types.ArrayType(
-            types.ShortType())),
+            'pk', types.IntegerType()
+        ),
         types.StructField(
-        'map', types.MapType(
-            types.StringType(),
-            types.IntegerType())), ])
+            'struct', types.StructType(
+                [types.StructField(
+                    'float64', types.DoubleType()),
+                    types.StructField(
+                    'bool', types.BooleanType()), ])),
+        types.StructField(
+            'array', types.ArrayType(
+                types.ShortType())),
+        types.StructField(
+            'map', types.MapType(
+                types.StringType(),
+                types.IntegerType())), ])
 
     df = spark.createDataFrame([
         (
+            i,
             {'float64': float(i), 'bool': i % 2 == 0},
             list(range(i + 1)),
             {str(i): i for i in range(i)}
