@@ -42,7 +42,7 @@ for path in (TEST_ROOT / 'generated').iterdir():
                 case = ReadCase(
                     delta_root=path / 'delta',
                     version=version,
-                    parquet_root=version_path,
+                    parquet_root=version_path / "table_content",
                     name=case_metadata['name'],
                     description=case_metadata['description'],
                     min_reader_version=expected_metadata['min_reader_version'],
