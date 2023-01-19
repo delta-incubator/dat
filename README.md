@@ -9,7 +9,7 @@ To download and unpack:
 ```
 VERSION=0.0.1
 curl -OL https://github.com/delta-incubator/dat/releases/download/v$VERSION/deltalake-dat-v$VERSION.tar.gz
-tar -xzvf deltalake-dat-v$VERSION.tar.gz
+tar  --no-same-permissions -xzf deltalake-dat-v$VERSION.tar.gz
 ```
 
 ## Testing Readers

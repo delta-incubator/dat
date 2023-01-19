@@ -23,7 +23,7 @@ class TestCaseInfo(BaseModel):
         return self.root / 'expected' / version_path
 
     def expected_path(self, version: Optional[int] = None) -> str:
-        return str(self.expected_root(version) / 'table_content.parquet')
+        return str(self.expected_root(version) / 'table_content')
 
 
 class TableVersionMetadata(BaseModel):
