@@ -36,6 +36,8 @@ TBD
 
 ## Running unit tests
 
+Note: You need to generate the reference tables locally in order to run the unit tests.
+
 You can run the unit tests with `poetry run pytest tests`.
 
 If you've already run `poetry shell`, you can run the tests with `pytest tests`.
