@@ -20,7 +20,7 @@ To open a shell session within the poetry environment, use
 poetry shell
 ```
 
-## Adding reader tests
+## Generating reference tables locally
 
 Reader test cases are defined in `dat/generated_tables.py`. Currently, they are all defined in terms of PySpark code. If there is a table that doesn't fit into that paradigm, create an issue on the repository and we will consider other modes of adding tables.
 
@@ -33,3 +33,12 @@ make write-generated-tables
 ## Adding writer tests
 
 TBD
+
+## Running unit tests
+
+Note: You need to generate the reference tables locally in order to run the unit tests.
+
+You can run the unit tests with `poetry run pytest tests`.
+
+If you've already run `poetry shell`, you can run the tests with `pytest tests`.
+
