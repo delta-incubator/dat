@@ -7,7 +7,7 @@ The tests cases are packaged into [releases](https://github.com/delta-incubator/
 To download and unpack:
 
 ```
-VERSION=0.0.1
+VERSION=0.0.2
 curl -OL https://github.com/delta-incubator/dat/releases/download/v$VERSION/deltalake-dat-v$VERSION.tar.gz
 tar  --no-same-permissions -xzf deltalake-dat-v$VERSION.tar.gz
 ```
