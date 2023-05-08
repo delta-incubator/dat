@@ -27,10 +27,10 @@ All reader test cases are stored in the directory `out/reader_tests/generated`. 
   |-- expected
     |-- latest
       |-- table_version_metadata.json
-      |-- table_content.parquet
+      |-- table_content
     |-- v1
       |-- table_version_metadata.json
-      |-- table_content.parquet
+      |-- table_content
 ```
 
 Each test case is a folder, named for its test. It contains:
@@ -52,7 +52,7 @@ Then for each test case:
  2. Verify the metadata read from the Delta table matches that in the `table_version_metadata.json`. For example, verify that the connector parsed the correct `min_reader_version` from the Delta log. This step may be skipped if the reader connector does not expose such details in its public API.
  3. Attempt to read the Delta table's data:
    a. If the Delta table uses a version unsupported by the reader connector (as determined from `table_version_metadata.json`), verify an appropriate error is returned.
-   b. If the Delta table is supported by the reader connector, assert that the read data is equal to the data read from `table_content.parquet`. In order to make it easy to sort the tables for comparison, some tables have a column `pk` which is an ascending integer sequence.
+   b. If the Delta table is supported by the reader connector, assert that the read data is equal to the data read from `table_content`. In order to make it easy to sort the tables for comparison, some tables have a column `pk` which is an ascending integer sequence.
 
 For an example implementation of this, see the example PySpark tests in `tests/pyspark_delta/`.
 
