@@ -18,4 +18,7 @@ def get_spark_session():
             'org.apache.spark.sql.delta.catalog.DeltaCatalog',
         )
         builder = delta.configure_spark_with_delta_pip(builder)
-    return builder.getOrCreate()
+    spark = builder.enableHiveSupport().getOrCreate()
+    spark._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    # spark.conf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    return spark
