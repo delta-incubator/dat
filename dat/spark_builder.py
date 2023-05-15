@@ -19,6 +19,13 @@ def get_spark_session():
         )
         builder = delta.configure_spark_with_delta_pip(builder)
     spark = builder.enableHiveSupport().getOrCreate()
-    spark._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
-    # spark.conf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    hadoop = spark.sparkContext._jvm.org.apache.hadoop  # type: ignore
+    hadoop_conf = spark._jsc.hadoopConfiguration()  # type: ignore
+    fs = hadoop.fs.FileSystem.get(hadoop_conf)  # type: ignore
+    fs.setWriteChecksum(False)
     return spark
+
+    # spark = builder.enableHiveSupport().getOrCreate()
+    # spark._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    # # spark.conf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    # return spark
