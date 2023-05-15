@@ -25,7 +25,7 @@ def get_spark_session():
     fs.setWriteChecksum(False)
     return spark
 
-    # spark = builder.enableHiveSupport().getOrCreate()
-    # spark._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
-    # # spark.conf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
-    # return spark
+    # spark = builder.enableHiveSupport().getOrCreate() # type: ignore
+    # spark._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false") # type: ignore
+    # # spark.conf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false") # type: ignore
+    # return spark # type: ignore
