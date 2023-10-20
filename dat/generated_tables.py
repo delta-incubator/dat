@@ -104,6 +104,27 @@ def create_basic_partitioned(case: TestCaseInfo, spark: SparkSession):
         'delta').save(case.delta_root)
     save_expected(case)
 
+    data2 = [('a', 4, 4.4), ('e', 5, 5.5), ('f', 6, 6.6)]
+    df = spark.createDataFrame(data2, schema=columns)
+
+    df.repartition(1).write.partitionBy('letter').format(
+        'delta').mode('append').save(case.delta_root)
+    save_expected(case)
+
+
+@reference_table(
+    name='partitioned_with_null',
+    description='A partitioned table with a null partition',
+)
+def create_partitioned_with_null(case: TestCaseInfo, spark: SparkSession):
+    columns = ['letter', 'number', 'a_float']
+    data = [('a', 1, 1.1), ('b', 2, 2.2), ('c', 3, 3.3)]
+    df = spark.createDataFrame(data, schema=columns)
+
+    df.repartition(1).write.partitionBy('letter').format(
+        'delta').save(case.delta_root)
+    save_expected(case)
+
     data2 = [('a', 4, 4.4), ('e', 5, 5.5), (None, 6, 6.6)]
     df = spark.createDataFrame(data2, schema=columns)
 
