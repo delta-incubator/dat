@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, List, Tuple
 
 import pyspark.sql
+import pyspark.sql.functions as F
 import pyspark.sql.types as types
 from delta.tables import DeltaTable
 from pyspark.sql import SparkSession
@@ -403,3 +404,28 @@ def create_no_stats(case: TestCaseInfo, spark: SparkSession):
         df = get_sample_data(spark, seed=i, nrows=5)
         df.repartition(1).write.format('delta').mode(
             'overwrite').save(case.delta_root)
+
+
+@reference_table(
+    name='deletion_vectors',
+    description='Table with deletion vectors',
+)
+def create_deletion_vectors(case: TestCaseInfo, spark: SparkSession):
+    columns = ['letter', 'number', 'a_float']
+    data = [('a', 1, 1.1), ('b', 2, 2.2), ('c', 3, 3.3)]
+    df = spark.createDataFrame(data, schema=columns)
+
+    df.repartition(1).write.format('delta').save(case.delta_root)
+    save_expected(case)
+
+    delta_path = str(Path(case.delta_root).absolute())
+    delta_table = DeltaTable.create(spark).location(delta_path)
+
+    spark.sql(
+        f"ALTER TABLE delta.`{delta_path}` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)"
+    )
+
+    delta_table.delete(F.col("letter") == "a")
+
+    delta_table.toDF().repartition(1).write.format('delta').mode('append').save(case.delta_root)
+    save_expected(case)
