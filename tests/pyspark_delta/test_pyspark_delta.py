@@ -65,6 +65,11 @@ def test_readers_dat(spark_session, case: ReadCase):
             query.load(str(case.delta_root))
     else:
         actual_df = query.load(str(case.delta_root))
+        print("***")
+        print(case.delta_root)
+        print(case.description)
+        print(actual_df.show())
+        print("***")
 
         expected_df = spark_session.read.format('parquet').load(
             str(case.parquet_root) + '/*.parquet')
