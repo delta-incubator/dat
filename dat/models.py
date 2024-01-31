@@ -3,7 +3,7 @@ from typing import Dict, Optional
 
 from pydantic import BaseModel
 
-OUT_ROOT = Path('./out/reader_tests/generated/')
+OUT_ROOT = Path("./out/reader_tests/generated/")
 
 
 class TestCaseInfo(BaseModel):
@@ -16,14 +16,14 @@ class TestCaseInfo(BaseModel):
 
     @property
     def delta_root(self) -> str:
-        return str(self.root / 'delta')
+        return str(self.root / "delta")
 
     def expected_root(self, version: Optional[int] = None) -> Path:
-        version_path = 'latest' if version is None else f'v{version}'
-        return self.root / 'expected' / version_path
+        version_path = "latest" if version is None else f"v{version}"
+        return self.root / "expected" / version_path
 
     def expected_path(self, version: Optional[int] = None) -> str:
-        return str(self.expected_root(version) / 'table_content')
+        return str(self.expected_root(version) / "table_content")
 
 
 class TableVersionMetadata(BaseModel):
