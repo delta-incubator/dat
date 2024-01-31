@@ -33,22 +33,21 @@ def cli():
 
 
 @click.command()
-@click.option('--table-name')
+@click.option("--table-name")
 def write_generated_reference_tables(table_name: Optional[str]):
     if table_name:
         for metadata, create_table in generated_tables.registered_reference_tables:
             if metadata.name == table_name:
                 logging.info("Writing table '%s'", metadata.name)
-                out_base = Path('out/reader_tests/generated') / table_name
+                out_base = Path("out/reader_tests/generated") / table_name
                 shutil.rmtree(out_base, ignore_errors=True)
 
                 create_table()
                 break
         else:
-            raise ValueError(
-                f"Could not find generated table named '{table_name}'")
+            raise ValueError(f"Could not find generated table named '{table_name}'")
     else:
-        out_base = Path('out/reader_tests/generated')
+        out_base = Path("out/reader_tests/generated")
         shutil.rmtree(out_base, ignore_errors=True)
 
         for metadata, create_table in generated_tables.registered_reference_tables:
@@ -58,18 +57,18 @@ def write_generated_reference_tables(table_name: Optional[str]):
 
 @click.command()
 def write_model_schemas():
-    out_base = Path('out/schemas')
+    out_base = Path("out/schemas")
     os.makedirs(out_base, exist_ok=True)
 
-    with open(out_base / 'TestCaseInfo.json', 'w') as f:
+    with open(out_base / "TestCaseInfo.json", "w") as f:
         f.write(TestCaseInfo.schema_json(indent=2))
 
-    with open(out_base / 'TableVersionMetadata.json', 'w') as f:
+    with open(out_base / "TableVersionMetadata.json", "w") as f:
         f.write(TableVersionMetadata.schema_json(indent=2))
 
 
 cli.add_command(write_generated_reference_tables)
 cli.add_command(write_model_schemas)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli()
