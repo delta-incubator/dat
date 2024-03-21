@@ -7,7 +7,7 @@ import pytest
 
 TEST_ROOT = Path("out/reader_tests/")
 
-MAX_SUPPORTED_READER_VERSION = 2
+MAX_SUPPORTED_READER_VERSION = 3
 
 
 class ReadCase(NamedTuple):
