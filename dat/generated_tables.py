@@ -33,6 +33,9 @@ def get_version_metadata(case: TestCaseInfo) -> TableVersionMetadata:
 def save_expected(case: TestCaseInfo, as_latest=False) -> None:
     """Save the specified version of a Delta Table as a Parquet file."""
     spark = get_spark_session()
+    # we want all golden data to be in microsecond format, as that's what delta is always
+    # supposed to read
+    spark.conf.set('spark.sql.parquet.outputTimestampType', 'TIMESTAMP_MICROS')
     df = spark.read.format("delta").load(case.delta_root)
 
     version_metadata = get_version_metadata(case)
