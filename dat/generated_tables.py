@@ -60,7 +60,7 @@ def reference_table(name: str, description: str):
             create_table(case, spark)
 
             with open(case.root / "test_case_info.json", "w") as f:
-                f.write(case.json(indent=2, separators=(",", ": ")))
+                f.write(case.model_dump_json(indent=2))
 
             # Write out latest
             save_expected(case, as_latest=True)
