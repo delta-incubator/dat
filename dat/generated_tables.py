@@ -48,7 +48,7 @@ def save_expected(case: TestCaseInfo, as_latest=False) -> None:
 
     out_path = case.expected_root(version) / "table_version_metadata.json"
     with open(out_path, "w") as f:
-        f.write(version_metadata.json(indent=2))
+        f.write(version_metadata.model_dump_json(indent=2))
 
 
 def reference_table(name: str, description: str):
@@ -60,7 +60,7 @@ def reference_table(name: str, description: str):
             create_table(case, spark)
 
             with open(case.root / "test_case_info.json", "w") as f:
-                f.write(case.json(indent=2, separators=(",", ": ")))
+                f.write(case.model_dump_json(indent=2))
 
             # Write out latest
             save_expected(case, as_latest=True)

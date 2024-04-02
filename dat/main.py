@@ -19,7 +19,7 @@ def cli():
     """
     DAT (Delta Acceptance Testing) CLI helper.
 
-    This CLI tool helps performing mundane tasks related to managing
+    This CLI tool helps to perform mundane tasks related to managing
     reference tables for delta acceptance testing, including:
 
     - generating tables from python code
