@@ -598,10 +598,6 @@ def repartition_table(spark, table_path, num_partitions):
       .mode("overwrite") \
       .save(table_path)
 
-def vacuum_table(table_path, retention_hours):
-    with spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false"):
-        DeltaTable.forPath(spark, table_path).vacuum(retention_hours)
-
 @reference_table(name="snapshot-data0", description="golden tables snapshot-data0 test")
 def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
     table_path = str(Path(case.delta_root).absolute())
@@ -646,3 +642,15 @@ def create_snapshot_repartitioned(case: TestCaseInfo, spark: SparkSession):
     write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
     delete_data_with_condition(spark, table_path, "col2 like 'data-2-%'")
     repartition_table(spark, table_path, 2)
+
+@reference_table(name="snapshot-vacuumed", description="golden tables snapshot-vacuumed test")
+def create_snapshot_vacuumed(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
+    write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
+    delete_data_with_condition(spark, table_path, "col2 like 'data-2-%'")
+    repartition_table(spark, table_path, 2)
+    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+    DeltaTable.forPath(spark, table_path).vacuum(0.0)
