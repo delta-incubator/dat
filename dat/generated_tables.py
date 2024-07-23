@@ -571,3 +571,86 @@ def create_iceberg_compat_v1(case: TestCaseInfo, spark: SparkSession):
     )
     delta_table.upgradeTableProtocol(3, 7)
     df.repartition(1).write.format("delta").mode("append").save(case.delta_root)
+
+
+# delta-io/delta golden tables migration
+def write_data(spark, data, mode, table_path):
+    schema = types.StructType([
+        types.StructField("col1", types.IntegerType(), True),
+        types.StructField("col2", types.StringType(), True)
+    ])
+    spark.createDataFrame(data, schema) \
+         .write \
+         .mode(mode) \
+         .format("delta") \
+         .save(table_path)
+
+def delete_data_with_condition(spark, table_path, condition):
+    table = DeltaTable.forPath(spark, table_path)
+    table.delete(condition)
+
+def repartition_table(spark, table_path, num_partitions):
+    df = spark.read.format("delta").load(table_path)
+    df.repartition(num_partitions) \
+      .write \
+      .option("dataChange", "false") \
+      .format("delta") \
+      .mode("overwrite") \
+      .save(table_path)
+
+@reference_table(name="snapshot-data0", description="golden tables snapshot-data0 test")
+def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+ 
+@reference_table(name="snapshot-data1", description="golden tables snapshot-data1 test")
+def create_snapshot_data1(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+
+@reference_table(name="snapshot-data2", description="golden tables snapshot-data2 test")
+def create_snapshot_data2(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
+
+@reference_table(name="snapshot-data3", description="golden tables snapshot-data3 test")
+def create_snapshot_data3(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
+    write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
+
+@reference_table(name="snapshot-data2-deleted", description="golden tables snapshot-data2-deleted test")
+def create_snapshot_data2_deleted(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
+    write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
+    delete_data_with_condition(spark, table_path, "col2 like 'data-2-%'")
+
+@reference_table(name="snapshot-repartitioned", description="golden tables snapshot-repartitioned test")
+def create_snapshot_repartitioned(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
+    write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
+    delete_data_with_condition(spark, table_path, "col2 like 'data-2-%'")
+    repartition_table(spark, table_path, 2)
+
+@reference_table(name="snapshot-vacuumed", description="golden tables snapshot-vacuumed test")
+def create_snapshot_vacuumed(case: TestCaseInfo, spark: SparkSession):
+    table_path = str(Path(case.delta_root).absolute())
+    write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
+    write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
+    write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
+    delete_data_with_condition(spark, table_path, "col2 like 'data-2-%'")
+    repartition_table(spark, table_path, 2)
+    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+    DeltaTable.forPath(spark, table_path).vacuum(0.0)
