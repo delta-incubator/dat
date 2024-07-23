@@ -608,20 +608,20 @@ def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
     write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
  
 @reference_table(name="snapshot-data1", description="golden tables snapshot-data1 test")
-def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
+def create_snapshot_data1(case: TestCaseInfo, spark: SparkSession):
     table_path = str(Path(case.delta_root).absolute())
     write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
     write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
 
 @reference_table(name="snapshot-data2", description="golden tables snapshot-data2 test")
-def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
+def create_snapshot_data2(case: TestCaseInfo, spark: SparkSession):
     table_path = str(Path(case.delta_root).absolute())
     write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
     write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
     write_data(spark, [(x, f"data-2-{x}") for x in range(10)], "overwrite", table_path)
 
 @reference_table(name="snapshot-data3", description="golden tables snapshot-data3 test")
-def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
+def create_snapshot_data3(case: TestCaseInfo, spark: SparkSession):
     table_path = str(Path(case.delta_root).absolute())
     write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
     write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
@@ -629,7 +629,7 @@ def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
     write_data(spark, [(x, f"data-3-{x}") for x in range(20)], "append", table_path)
 
 @reference_table(name="snapshot-data2-deleted", description="golden tables snapshot-data2-deleted test")
-def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
+def create_snapshot_data2_deleted(case: TestCaseInfo, spark: SparkSession):
     table_path = str(Path(case.delta_root).absolute())
     write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
     write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
@@ -638,7 +638,7 @@ def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
     delete_data_with_condition(spark, table_path, "col2 like 'data-2-%'")
 
 @reference_table(name="snapshot-repartitioned", description="golden tables snapshot-repartitioned test")
-def create_snapshot_data0(case: TestCaseInfo, spark: SparkSession):
+def create_snapshot_repartitioned(case: TestCaseInfo, spark: SparkSession):
     table_path = str(Path(case.delta_root).absolute())
     write_data(spark, [(x, f"data-0-{x}") for x in range(10)], "append", table_path)
     write_data(spark, [(x, f"data-1-{x}") for x in range(10)], "append", table_path)
