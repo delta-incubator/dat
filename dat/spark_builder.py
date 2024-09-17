@@ -22,4 +22,9 @@ def get_spark_session():
             )
         )
         builder = delta.configure_spark_with_delta_pip(builder)
-    return builder.getOrCreate()
+    spark = builder.enableHiveSupport().getOrCreate()
+    hadoop = spark.sparkContext._jvm.org.apache.hadoop  # type: ignore
+    hadoop_conf = spark._jsc.hadoopConfiguration()  # type: ignore
+    fs = hadoop.fs.FileSystem.get(hadoop_conf)  # type: ignore
+    fs.setWriteChecksum(False)
+    return spark
