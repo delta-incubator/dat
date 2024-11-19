@@ -570,4 +570,5 @@ def create_iceberg_compat_v1(case: TestCaseInfo, spark: SparkSession):
         .execute()
     )
     delta_table.upgradeTableProtocol(3, 7)
+    delta_table.addFeatureSupport("columnMapping")
     df.repartition(1).write.format("delta").mode("append").save(case.delta_root)
