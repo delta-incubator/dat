@@ -1,10 +1,11 @@
+import json
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
-import click
+import typer
 
 from dat import generated_tables
 from dat.models import TableVersionMetadata, TestCaseInfo
@@ -14,8 +15,11 @@ logging.basicConfig(
 )
 
 
-@click.group()
-def cli():
+app = typer.Typer()
+
+
+@app.callback()
+def main():
     """
     DAT (Delta Acceptance Testing) CLI helper.
 
@@ -23,18 +27,25 @@ def cli():
     reference tables for delta acceptance testing, including:
 
     - generating tables from python code
-
     - generating json schemas of the metadata for code generation
-        in other programming languages
+      in other programming languages
 
 
     """
-    pass  # noqa: WPS420
+    pass
 
 
-@click.command()
-@click.option("--table-name")
-def write_generated_reference_tables(table_name: Optional[str]):
+@app.command()
+def generate_tables(
+    table_name: Annotated[
+        str | None,
+        typer.Option(
+            help="Name of the table to write. Will write only the specified table."
+        ),
+    ] = None,
+):
+    """Generate DAT reference Tables."""
+
     if table_name:
         for metadata, create_table in generated_tables.registered_reference_tables:
             if metadata.name == table_name:
@@ -55,20 +66,19 @@ def write_generated_reference_tables(table_name: Optional[str]):
             create_table()
 
 
-@click.command()
-def write_model_schemas():
+@app.command()
+def generate_schemas():
+    """Generate JSON schemas."""
+
     out_base = Path("out/schemas")
     os.makedirs(out_base, exist_ok=True)
 
     with open(out_base / "TestCaseInfo.json", "w") as f:
-        f.write(TestCaseInfo.schema_json(indent=2))
+        f.write(json.dumps(TestCaseInfo.model_json_schema(), indent=2))
 
     with open(out_base / "TableVersionMetadata.json", "w") as f:
-        f.write(TableVersionMetadata.schema_json(indent=2))
+        f.write(json.dumps(TableVersionMetadata.model_json_schema(), indent=2))
 
-
-cli.add_command(write_generated_reference_tables)
-cli.add_command(write_model_schemas)
 
 if __name__ == "__main__":
-    cli()
+    app()

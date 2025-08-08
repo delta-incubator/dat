@@ -3,7 +3,7 @@ name: Publish DAT Tables
 on:
   push:
     tags:
-     - '*'
+      - "*"
 
 jobs:
   publish:
@@ -11,21 +11,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version-file: "pyproject.toml"
 
-      - uses: snok/install-poetry@v1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
-          version: 1.4.2
-          virtualenvs-create: true
-          virtualenvs-in-project: true
+          enable-cache: true
 
-      - run: poetry install --no-interaction
+      - name: Install the project
+        run: uv sync --locked --dev
 
-      - run: make write-generated-tables
+      - name: Generate tables
+        run: uv run --no-sync dat generate-tables
 
-      - run: make test
+      - name: Run tests
+        run: uv run --no-sync pytest tests
 
       - name: Bundle tables
         run: tar -czvf deltalake-dat-${{ github.ref_name }}.tar.gz out
