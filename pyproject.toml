@@ -1,29 +1,35 @@
-[tool.poetry]
+[project]
 name = "dat"
-version = "0.1.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
+version = "0.0.3"
+description = "Accetance testing for Delta Lake implementations."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+keywords = ["deltalake", "delta", "acceptance"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pydantic>=2.11.7,<3.0.0",
+    "pyspark>=4.0.0,<5.0.0",
+    "delta-spark>=4.0.0,<5.0.0",
+    "click>=8.2.1,<9.0.0",
+    "pyarrow>=21",
+    "typer>=0.16.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-pydantic = "^2.6.4"
-pyspark = "^3.5.1"
-click = "^8.1.7"
-delta-spark = "^3.1.0"
-rootpath = "^0.1.1"
-pyarrow = "^15.0.2"
+[project.scripts]
+dat = "dat.main:app"
 
-[tool.poetry.dev-dependencies]
-flake8 = "^7.0.0"
-isort = "^5.13.2"
-pytest = "^8.1.1"
-coverage = "^7.4.4"
-autopep8 = "^2.1.0"
-mypy = "^1.9.0"
-bandit = "^1.7.8"
-unify = "^0.5"
-chispa = "^0.10.0"
+[project.urls]
+repository = "https://github.com/delta-incubator/dat"
+
+[dependency-groups]
+dev = [{ include-group = "lint" }, { include-group = "test" }]
+lint = ["ruff"]
+test = ["pytest", "chispa>=0.11.1"]
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.8.6,<0.9.0"]
+build-backend = "uv_build"

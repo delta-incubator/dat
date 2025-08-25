@@ -3,7 +3,7 @@ import random
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Tuple, List
+from typing import Callable, List, Tuple
 
 import pyspark.sql
 import pyspark.sql.types as types
@@ -35,7 +35,7 @@ def save_expected(case: TestCaseInfo, as_latest=False) -> None:
     spark = get_spark_session()
     # we want all golden data to be in microsecond format, as that's what delta is always
     # supposed to read
-    spark.conf.set('spark.sql.parquet.outputTimestampType', 'TIMESTAMP_MICROS')
+    spark.conf.set("spark.sql.parquet.outputTimestampType", "TIMESTAMP_MICROS")
     df = spark.read.format("delta").load(case.delta_root)
 
     version_metadata = get_version_metadata(case)
@@ -557,7 +557,7 @@ def create_timestamp_ntz(case: TestCaseInfo, spark: SparkSession):
 
 @reference_table(
     name="iceberg_compat_v1",
-    description="Table with Iceberg compatability v1 turned on",
+    description="Table with Iceberg compatibility v1 turned on",
 )
 def create_iceberg_compat_v1(case: TestCaseInfo, spark: SparkSession):
     df = get_sample_data(spark)

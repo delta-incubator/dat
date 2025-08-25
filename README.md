@@ -83,7 +83,7 @@ Table containing all non-nested types.
 A basic table with two append writes.
 
 ```
-+------+------+-------+                                                         
++------+------+-------+
 |letter|number|a_float|
 +------+------+-------+
 |     a|     1|    1.1|
@@ -99,7 +99,7 @@ A basic table with two append writes.
 A basic partitioned table.
 
 ```
-+------+------+-------+                                                         
++------+------+-------+
 |letter|number|a_float|
 +------+------+-------+
 |     b|     2|    2.2|
@@ -116,7 +116,7 @@ A basic partitioned table.
 Multiple levels of partitioning, with boolean, timestamp, and decimal partition columns.
 
 ```
-+-----+-------------------+--------------------+---+                            
++-----+-------------------+--------------------+---+
 | bool|               time|              amount|int|
 +-----+-------------------+--------------------+---+
 |false|1970-01-02 08:45:00|12.00000000000000...|  3|
@@ -130,7 +130,7 @@ Multiple levels of partitioning, with boolean, timestamp, and decimal partition 
 Multiple levels of partitioning, with boolean, timestamp, and decimal partition columns.
 
 ```
-+-----+-------------------+--------------------+---+                            
++-----+-------------------+--------------------+---+
 | bool|               time|              amount|int|
 +-----+-------------------+--------------------+---+
 |false|1970-01-02 08:45:00|12.00000000000000...|  3|
@@ -144,7 +144,7 @@ Multiple levels of partitioning, with boolean, timestamp, and decimal partition 
 Table containing various nested types.
 
 ```
-+---+------------+---------------+--------------------+                         
++---+------------+---------------+--------------------+
 | pk|      struct|          array|                 map|
 +---+------------+---------------+--------------------+
 |  0| {0.0, true}|            [0]|                  {}|
@@ -160,7 +160,7 @@ Table containing various nested types.
 Table with a checkpoint and prior commits cleaned up.
 
 ```
-+------+---+----------+                                                         
++------+---+----------+
 |letter|int|      date|
 +------+---+----------+
 |     a| 93|1975-06-01|
@@ -176,7 +176,7 @@ Table with a checkpoint and prior commits cleaned up.
 Table with no stats.
 
 ```
-+------+---+----------+                                                         
++------+---+----------+
 |letter|int|      date|
 +------+---+----------+
 |     a| 93|1975-06-01|
@@ -192,7 +192,7 @@ Table with no stats.
 Table with stats only written as struct (not JSON) with Checkpoint.
 
 ```
-+------+---+----------+                                                         
++------+---+----------+
 |letter|int|      date|
 +------+---+----------+
 |     a| 93|1975-06-01|
@@ -208,7 +208,7 @@ Table with stats only written as struct (not JSON) with Checkpoint.
 Table with a checkpoint.
 
 ```
-+------+---+----------+                                                         
++------+---+----------+
 |letter|int|      date|
 +------+---+----------+
 |     a| 93|1975-06-01|
@@ -224,7 +224,7 @@ Table with a checkpoint.
 Table which has schema change using overwriteSchema=True.
 
 ```
-+----+----+                                                                     
++----+----+
 |num1|num2|
 +----+----+
 |  22|  33|
@@ -235,8 +235,10 @@ Table which has schema change using overwriteSchema=True.
 
 ## Models
 
-The test cases contain several JSON files to be read by connector tests. To make it easier to read them, we provide [JSON schemas](https://json-schema.org/) for each of the file types in `out/schemas/`. They can be read to understand
-the expected structure, or even used to generate data structures in your preferred programming language.
+The test cases contain several JSON files to be read by connector tests. To make it easier to
+read them, we provide [JSON schemas](https://json-schema.org/) for each of the file types
+in `out/schemas/`. They can be read to understand the expected structure, or even used to generate
+data structures in your preferred programming language.
 
 ## Contributing
 
