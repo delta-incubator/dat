@@ -163,6 +163,7 @@ cython_debug/
 junit
 
 .vscode
+.claude
 *.parquet.crc
 *.json.crc
 
