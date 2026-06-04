@@ -21,15 +21,9 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 /**
  * Platform-specific backing for Delta-internal access.
  *
- * Implementations wrap either OSS delta-spark (`org.apache.spark.sql.delta.DeltaLog`)
- * or DBR tahoe (`com.databricks.sql.transaction.tahoe.DeltaLog`). The generator
- * library depends only on this SPI.
- *
- * Discovery order:
- *   1. `-Dio.delta.workload.harness=<fully-qualified-class-name>` (explicit override)
- *   2. If `com.databricks.sql.transaction.tahoe.DeltaLog` is on the classpath,
- *      `io.delta.workload.deltaharness.dbr.DbrDeltaHarness` is used.
- *   3. Otherwise `io.delta.workload.deltaharness.oss.OssDeltaHarness` is used.
+ * The default implementation wraps delta-spark (`org.apache.spark.sql.delta.DeltaLog`).
+ * The generator library depends only on this SPI; an alternate backing can be selected via
+ * `-Dio.delta.workload.harness=<fully-qualified-class-name>`.
  */
 trait DeltaHarness {
   /**
@@ -67,18 +61,10 @@ trait SnapshotView {
 }
 
 object DeltaHarness {
-  private val OssClass = "io.delta.workload.deltaharness.oss.OssDeltaHarness"
-  private val DbrClass = "io.delta.workload.deltaharness.dbr.DbrDeltaHarness"
+  private val DefaultClass = "io.delta.workload.deltaharness.DeltaSparkHarness"
 
   private lazy val instance: DeltaHarness = {
-    val className = sys.props.get("io.delta.workload.harness").getOrElse {
-      try {
-        Class.forName("com.databricks.sql.transaction.tahoe.DeltaLog")
-        DbrClass
-      } catch {
-        case _: ClassNotFoundException => OssClass
-      }
-    }
+    val className = sys.props.getOrElse("io.delta.workload.harness", DefaultClass)
     Class.forName(className).getDeclaredConstructor()
       .newInstance().asInstanceOf[DeltaHarness]
   }

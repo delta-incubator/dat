@@ -69,19 +69,13 @@ abstract class WorkloadTestSuite(override val suiteName: String)
   private var _ctx: WorkloadContext = _
 
   private var _warehouseDir: java.nio.file.Path = _
-  /** True when reusing an externally-provided SparkSession (e.g. DBR REPL). */
+  /** True when reusing an externally-provided SparkSession (e.g. a host REPL). */
   private var _externalSession: Boolean = false
-
-  /** Detect if running on DBR by checking for a tahoe class. */
-  protected def isDBR: Boolean = try {
-    Class.forName("com.databricks.sql.transaction.tahoe.DeltaLog")
-    true
-  } catch { case _: ClassNotFoundException => false }
 
   override def beforeAll(): Unit = {
     super.beforeAll()
 
-    // If a SparkSession already exists (e.g. DBR REPL, or an earlier suite in
+    // If a SparkSession already exists (e.g. a host REPL, or an earlier suite in
     // the same JVM), reuse it — but still push the configs the workload DSL
     // depends on, since a builder's config() only applies when getOrCreate()
     // creates a new session.
@@ -97,19 +91,16 @@ abstract class WorkloadTestSuite(override val suiteName: String)
       val builder = SparkSession.builder()
         .master("local[*]")
         .appName(s"WorkloadGenerator-$suiteName")
-      // On DBR, Delta extensions are built-in. On OSS, we must configure them.
-      if (!isDBR) {
-        builder
-          .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-          .config("spark.sql.catalog.spark_catalog",
-            "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-      }
+      builder
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+        .config("spark.sql.catalog.spark_catalog",
+          "org.apache.spark.sql.delta.catalog.DeltaCatalog")
       _spark = builder
         .config("spark.sql.warehouse.dir", _warehouseDir.toString)
         .config("spark.ui.enabled", "false")
         .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.RawLocalFileSystem")
         .config("spark.databricks.delta.log.cacheSize", "0")
-        // Tests like CheckpointsSuite set `delta.checkpoint.partSize` which tahoe
+        // Tests like CheckpointsSuite set `delta.checkpoint.partSize`, which Delta
         // doesn't accept unless arbitrary properties are explicitly allowed.
         .config("spark.databricks.delta.allowArbitraryProperties.enabled", "true")
         // Also needed for MERGE schema-evolution tests.
@@ -122,7 +113,7 @@ abstract class WorkloadTestSuite(override val suiteName: String)
   }
 
   override def afterAll(): Unit = {
-    // Only stop sessions we created — never stop an external DBR session
+    // Only stop sessions we created — never stop an externally-provided session
     if (!_externalSession && _spark != null) {
       _spark.stop()
       _spark = null

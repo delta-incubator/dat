@@ -99,7 +99,6 @@ object SnapshotCapture {
 
     // Check error case FIRST - if expectedError is defined, this is an error spec
     if (spec.expectedError.isDefined) {
-      val err = spec.expectedError.get
       val actualCode = try {
         val log = harness.openLog(spark, tablePath.toString)
         val snapshot = JsonUtil.resolveSnapshot(spark, log, tablePath.toString, spec.version, spec.timestamp)
@@ -107,10 +106,9 @@ object SnapshotCapture {
       } catch {
         case e: Throwable => Some(JsonUtil.extractErrorCode(e))
       }
+      // Assert only that an error occurred, not the specific code (see ReadCapture).
       require(actualCode.isDefined,
         s"Error validation FAILED for $specName: expected operation to fail but it succeeded")
-      require(JsonUtil.normalizeErrorCode(actualCode.get) == JsonUtil.normalizeErrorCode(err.errorCode),
-        s"Error code mismatch for $specName: captured '${err.errorCode}' but got '${actualCode.get}'")
     } else if (spec.expected.isDefined) {
       val exp = spec.expected.get
       val log = harness.openLog(spark, tablePath.toString)
@@ -120,14 +118,13 @@ object SnapshotCapture {
       val actualMetadata = JsonUtil.mapper.treeToValue(
         JsonUtil.mapper.readTree(snapshot.metadataJson).get("metaData"), classOf[Any])
 
-      val expectedProtoJson = JsonUtil.mapper.writeValueAsString(exp.protocol)
-      val actualProtoJson = JsonUtil.mapper.writeValueAsString(actualProtocol)
-      require(expectedProtoJson == actualProtoJson,
+      // Canonicalize before comparing so engine-neutral but structurally-equal protocol /
+      // metadata pass: object keys are sorted, the order-insensitive readerFeatures /
+      // writerFeatures arrays are sorted, order-significant arrays (partitionColumns, schema
+      // fields) keep their order, and the embedded schemaString is parsed + canonicalized.
+      require(JsonUtil.canonicalJson(exp.protocol) == JsonUtil.canonicalJson(actualProtocol),
         s"Snapshot validation failed for $specName: protocol mismatch")
-
-      val expectedMetaJson = JsonUtil.mapper.writeValueAsString(exp.metadata)
-      val actualMetaJson = JsonUtil.mapper.writeValueAsString(actualMetadata)
-      require(expectedMetaJson == actualMetaJson,
+      require(JsonUtil.canonicalJson(exp.metadata) == JsonUtil.canonicalJson(actualMetadata),
         s"Snapshot validation failed for $specName: metadata mismatch")
     }
     // else: neither expected nor expectedError - nothing to validate

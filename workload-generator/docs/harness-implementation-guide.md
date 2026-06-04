@@ -219,14 +219,14 @@ Don't try to pass every test at once. Use `table_info.json` protocol fields and 
 | 2 | Time travel, predicates | ~500 |
 | 3 | Deletion vectors | ~600 |
 | 4 | Column mapping | ~650 |
-| 5 | Checkpoints, snapshot specs | ~800 |
+| 5 | Tables with checkpoints, snapshot specs | ~800 |
 | 6 | Error handling | ~900 |
 
 ---
 
 ## Debugging Failures
 
-- **`repro/generate.scala`** in each workload shows the exact Scala that created the table.
+- **`repro/generate.scala`** is a placeholder marker (full repro capture is not yet implemented).
 - **`delta/_delta_log/*.json`** contains raw commits — read them to understand table state.
 - **`table_info.json` → `logInfo`** gives a quick summary: `numCommits`, `numAddFiles`, `lastCheckpointVersion`, `sizeInBytes`.
 

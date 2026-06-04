@@ -8,11 +8,9 @@ Write a script that creates Delta tables with normal SQL, declare what specs to 
 
 | Document | Description |
 |----------|-------------|
-| **[Spec Format Reference](docs/spec-reference.md)** | Complete JSON schema for every spec type (read, snapshot, checkpoint, CRC) with exhaustive examples |
-| **[Coverage Matrix](docs/coverage-matrix.md)** | All tests across 40 suites — what Delta features your engine gets tested on |
-| **[Harness Implementation Guide](docs/harness-implementation-guide.md)** | Step-by-step guide to build a test harness that runs workloads against your engine, with Rust and Python examples |
+| **[Spec Format Reference](docs/spec-reference.md)** | JSON schema for the `read` and `snapshot` spec types, with examples |
+| **[Harness Implementation Guide](docs/harness-implementation-guide.md)** | Step-by-step guide to build a test harness that runs workloads against your engine, with a Rust example |
 | **[Authoring Guide](docs/authoring-guide.md)** | How to write new workload suites, patterns, recipes, and debugging tips |
-| **[Design Doc](docs/design-doc.md)** | Architecture decisions, alternatives considered, and rationale for each choice |
 
 ## Requirements
 
@@ -74,7 +72,7 @@ WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite
 │    specs/           # Spec JSON files                               │
 │    expected/        # Parquet expected data                         │
 │    table_info.json  # Table metadata                                │
-│    repro/           # Script to reproduce                           │
+│    repro/           # Repro placeholder                             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -83,7 +81,7 @@ WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite
 | Component | Purpose |
 |-----------|---------|
 | `WorkloadTestSuite` | ScalaTest base class with workload generation integration |
-| `WorkloadOps` | DSL trait: `sql()`, `registerTable()`, `read()`, `snapshot()` |
+| `WorkloadOps` | DSL trait: `sql()`, `registerTable()`, `readSpec()`, `snapshotSpec()` |
 | `WorkloadGenerator` | Orchestrates table copy, spec capture, and validation |
 | `ReadCapture` | Captures read specs with expected row data |
 | `SnapshotCapture` | Captures snapshot specs with protocol/metadata |
@@ -148,7 +146,7 @@ read_basic/
       expected_metadata/                  # AddFile actions
     ...
   table_info.json                         # Table schema, protocol, stats
-  repro/generate.scala                    # Script to reproduce
+  repro/generate.scala                    # Placeholder (not a runnable script yet)
 ```
 
 See the [Spec Format Reference](docs/spec-reference.md) for the complete JSON schema of every spec type.
@@ -162,7 +160,7 @@ See the [Spec Format Reference](docs/spec-reference.md) for the complete JSON sc
 
 ## Workload Suites
 
-Workload suites are in `src/test/scala/io/delta/workload/tables/`. Each suite extends `WorkloadTestSuite` and covers a specific Delta feature area. See the [Coverage Matrix](docs/coverage-matrix.md) for the full inventory of tests.
+Workload suites are in `src/test/scala/io/delta/workload/tables/`. Each suite extends `WorkloadTestSuite` and covers a specific Delta feature area (reads, deletion vectors, column mapping, time travel, checkpoints, data skipping, protocol versions, merge, schema evolution, type widening, variant, row tracking, in-commit timestamps, and more).
 
 ## Building a Test Harness
 
@@ -171,7 +169,7 @@ If you're implementing a Delta engine and want to use these workloads for accept
 1. Discovering and filtering workloads
 2. Implementing each spec type handler
 3. Multiset row comparison
-4. Error code mapping
+4. Error-spec handling (assert that an error occurs, not a specific code)
 5. CI integration
 6. Incremental adoption strategy
 

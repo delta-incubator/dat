@@ -18,8 +18,11 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path}
 
+import scala.collection.JavaConverters._
+
 import com.fasterxml.jackson.annotation._
-import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper, SerializationFeature}
+import com.fasterxml.jackson.databind.{DeserializationFeature, JsonNode, ObjectMapper, SerializationFeature}
+import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode, TextNode}
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -188,6 +191,36 @@ object JsonUtil {
 
   def writeSpec(path: Path, spec: Any): Unit =
     Files.write(path, prettyWriter.writeValueAsBytes(spec))
+
+  // Arrays whose element order is NOT semantically meaningful (they are sets) and so are
+  // sorted before comparison. Everything else (partitionColumns, schema `fields`, ...) keeps
+  // its order.
+  private val OrderInsensitiveArrays = Set("readerFeatures", "writerFeatures")
+
+  /**
+   * Canonicalize protocol/metadata JSON for engine-neutral comparison: recursively sort
+   * object keys, sort the order-insensitive feature arrays, preserve order-significant arrays,
+   * and parse + canonicalize the `schemaString` (a JSON document embedded as a string).
+   */
+  def canonicalJson(value: Any): String =
+    mapper.writeValueAsString(canonicalizeNode(mapper.valueToTree[JsonNode](value), ""))
+
+  private def canonicalizeNode(node: JsonNode, key: String): JsonNode = node match {
+    case obj: ObjectNode =>
+      val out = mapper.createObjectNode()
+      obj.fieldNames().asScala.toSeq.sorted.foreach(k => out.set[JsonNode](k, canonicalizeNode(obj.get(k), k)))
+      out
+    case arr: ArrayNode =>
+      val children = arr.elements().asScala.map(canonicalizeNode(_, key)).toSeq
+      val ordered = if (OrderInsensitiveArrays.contains(key)) children.sortBy(_.toString) else children
+      val out = mapper.createArrayNode()
+      ordered.foreach(out.add)
+      out
+    case t: TextNode if key == "schemaString" =>
+      // schemaString is a JSON document stored as a string; canonicalize its contents too.
+      TextNode.valueOf(mapper.writeValueAsString(canonicalizeNode(mapper.readTree(t.asText()), "")))
+    case other => other
+  }
 
   def readReadSpec(path: Path): ReadSpec =
     mapper.readValue(Files.readAllBytes(path), classOf[ReadSpec])

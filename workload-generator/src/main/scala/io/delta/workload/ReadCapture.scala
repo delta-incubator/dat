@@ -138,7 +138,6 @@ object ReadCapture {
 
     // Check error case FIRST - if expectedError is defined, this is an error spec
     if (spec.expectedError.isDefined) {
-      val err = spec.expectedError.get
       val harness = DeltaHarness.get
       val actualCode = try {
         // Use same code path as capture: openLog -> resolveSnapshot -> build reader.
@@ -155,22 +154,26 @@ object ReadCapture {
       } catch {
         case e: Throwable => Some(JsonUtil.extractErrorCode(e))
       }
+      // Assert only that an error occurred, not the specific code. Error codes/messages
+      // vary across engines (e.g. kernel-rs vs Spark), so matching a Spark-specific code
+      // would spuriously fail other DAT consumers. The captured code stays informational.
       require(actualCode.isDefined,
         s"Error validation FAILED for $specName: expected operation to fail but it succeeded")
-      require(JsonUtil.normalizeErrorCode(actualCode.get) == JsonUtil.normalizeErrorCode(err.errorCode),
-        s"Error code mismatch for $specName: captured '${err.errorCode}' but got '${actualCode.get}'")
     } else if (spec.expected.isDefined) {
       val rereadDf = JsonUtil.applyFilters(
         JsonUtil.buildDeltaReader(spark, tablePath, spec.version, spec.timestamp),
         spec.predicate, spec.columns)
 
+      // A spec with `expected` MUST have captured expected_data. A missing directory means
+      // the corpus is incomplete (or one engine produced data and another did not), so fail
+      // loudly rather than silently skipping the row check.
       val expectedDataPath = expectedDir.resolve("expected_data")
-      if (Files.exists(expectedDataPath)) {
-        JsonUtil.assertMultisetsEqual(
-          JsonUtil.toRowMultiset(spark.read.parquet(expectedDataPath.toString)),
-          JsonUtil.toRowMultiset(rereadDf),
-          specName)
-      }
+      require(Files.exists(expectedDataPath),
+        s"Validation FAILED for $specName: expected_data is missing")
+      JsonUtil.assertMultisetsEqual(
+        JsonUtil.toRowMultiset(spark.read.parquet(expectedDataPath.toString)),
+        JsonUtil.toRowMultiset(rereadDf),
+        specName)
 
       val expectedMetaPath = expectedDir.resolve("expected_metadata")
       if (Files.exists(expectedMetaPath)) {

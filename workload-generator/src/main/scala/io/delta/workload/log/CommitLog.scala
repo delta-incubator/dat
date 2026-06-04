@@ -25,8 +25,8 @@ import scala.collection.JavaConverters._
  * Filesystem-level read/write/mutate for Delta commit JSON files.
  *
  * Every method here operates on `_delta_log/NNNNNNNNNNNNNNNNNNNN.json` and
- * is platform-agnostic — the Delta protocol's JSON encoding is identical on
- * OSS delta-spark and DBR tahoe.
+ * is engine-agnostic — the Delta protocol's JSON encoding is identical across
+ * Delta implementations.
  */
 object CommitLog {
 

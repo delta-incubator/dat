@@ -49,7 +49,7 @@ The `errorCode` is the primary field for harness assertion. Error messages vary 
 
 ### ProtocolInfo
 
-Appears in snapshot, checkpoint, CRC, and table_info specs:
+Appears in snapshot and table_info specs:
 
 | Field | Type | Description |
 |-------|------|-------------|

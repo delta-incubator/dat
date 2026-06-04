@@ -160,7 +160,7 @@ test("checkpoint_test") {
 
   val t = registerTable("tbl")
   readSpec(t)
-  checkpoint(t, version = 1)
+  snapshotSpec(t)
 }
 ```
 
@@ -203,14 +203,10 @@ Each test produces one directory per registered table:
 │   ├── <test>_read/
 │   │   ├── expected_data/       # Parquet files — the rows the read should return
 │   │   └── expected_metadata/   # Parquet file — AddFile actions that were scanned
-│   ├── <test>_read_v0/
-│   │   └── expected_data/
-│   └── <test>_checkpoint_v2/
-│       ├── expected_checkpoint/ # Raw checkpoint files copied from _delta_log
-│       ├── expected_data/       # Parquet files — the rows at that version
-│       └── expected_metadata/   # Parquet file — AddFile actions at that version
+│   └── <test>_read_v0/
+│       └── expected_data/
 └── repro/
-    └── generate.scala           # Source script that produced this table
+    └── generate.scala           # Placeholder (not a runnable script yet)
 ```
 
 If a test registers **one** table, the directory is just `<test_name>/`. If it registers **multiple**, each gets `<test_name>_<table_name>/`.
@@ -283,7 +279,7 @@ Produces `specs/<test>_snapshot[_v<N>].json`:
 }
 ```
 
-If neither `version` nor `timestamp` is given, captures the latest snapshot. If no `snapshot()` call is made at all, a default latest-version snapshot is generated automatically.
+If neither `version` nor `timestamp` is given, captures the latest snapshot. If no `snapshotSpec()` call is made at all, a default latest-version snapshot is generated automatically.
 
 ---
 
@@ -341,7 +337,7 @@ modifyCommitActions(t, version = 0) { actions =>
 For complete control, manipulate commit files directly inside `mutateTable`:
 
 ```scala
-test("inject_txn", "Inject txn action") {
+test("inject_txn") {
   sql("CREATE TABLE tbl (id INT) USING delta")
   sql("INSERT INTO tbl VALUES (1)")
 

@@ -14,28 +14,26 @@
  * limitations under the License.
  */
 
-package io.delta.workload.deltaharness.oss
+package io.delta.workload.deltaharness
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.delta.{DeltaLog, Snapshot}
 
-import io.delta.workload.deltaharness._
-
-class OssDeltaHarness extends DeltaHarness {
+class DeltaSparkHarness extends DeltaHarness {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
     DeltaLog.clearCache()
-    new OssLogView(DeltaLog.forTable(spark, tablePath))
+    new DeltaSparkLogView(DeltaLog.forTable(spark, tablePath))
   }
 }
 
-private class OssLogView(inner: DeltaLog) extends LogView {
-  override def update(): SnapshotView = new OssSnapshotView(inner.update())
+private class DeltaSparkLogView(inner: DeltaLog) extends LogView {
+  override def update(): SnapshotView = new DeltaSparkSnapshotView(inner.update())
   override def getSnapshotAt(version: Long): SnapshotView =
-    new OssSnapshotView(inner.getSnapshotAt(version))
+    new DeltaSparkSnapshotView(inner.getSnapshotAt(version))
   override def checkpoint(): Unit = inner.checkpoint()
 }
 
-private class OssSnapshotView(inner: Snapshot) extends SnapshotView {
+private class DeltaSparkSnapshotView(inner: Snapshot) extends SnapshotView {
   override def version: Long = inner.version
   override def protocolJson: String = inner.protocol.json
   override def metadataJson: String = inner.metadata.json

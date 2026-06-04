@@ -72,7 +72,7 @@ object WorkloadGenerator {
 
     // Copy Delta table. Skip:
     //  - transient files that async engine hooks may be mid-cleaning (e.g.
-    //    DBR writes `.crc.<uuid>.tmp` files and deletes them shortly after —
+    //    some engines write `.crc.<uuid>.tmp` files and delete them shortly after —
     //    they can disappear between listing and copying)
     //  - Hadoop CRC sidecars (dot-prefixed `.NAME.crc`) — these would go
     //    stale on any subsequent `mutateTable` / `modifyCommitActions` and
@@ -210,7 +210,7 @@ class TableHandle private[workload] (
    *   - Non-ICT tables:     the commit JSON file's mtime.
    *
    * DESCRIBE HISTORY and `commitInfo.timestamp` both look right at a glance
-   * but diverge by a few milliseconds from the file mtime on DBR — feeding
+   * but diverge by a few milliseconds from the file mtime on some engines — feeding
    * those back as `timestampAsOf` raises DELTA_TIMESTAMP_GREATER_THAN_COMMIT
    * / DELTA_TIMESTAMP_EARLIER_THAN_COMMIT_RETENTION.
    */
