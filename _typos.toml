@@ -1,0 +1,8 @@
+[default.extend-words]
+# False positives from typos' identifier tokenizer / dictionary:
+#   - "explicits": intentional variable name (plural of "explicit specs")
+#   - "inser": camelCase split of "INSERTs" (INSER + Ts), correct as-is
+#   - "caf": bare token left by the "é" escape in the "café" Unicode test data
+explicits = "explicits"
+inser = "inser"
+caf = "caf"
