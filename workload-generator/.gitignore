@@ -1,0 +1,9 @@
+target/
+metastore_db/
+spark-warehouse/
+workloads/
+derby.log
+.bsp/
+*.class
+*.jar
+*.log
