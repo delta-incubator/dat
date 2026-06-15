@@ -76,6 +76,9 @@ private[workload] class TableDecl(
   private[workload] def resolveOutputName(name: String): Unit = { _outputName = name }
   val readSpecs = mutable.ArrayBuffer[ReadSpecConfig]()
   val snapshotSpecs = mutable.ArrayBuffer[SnapshotSpecConfig]()
+  val cdfSpecs = mutable.ArrayBuffer[CdfSpecConfig]()
+  val checkpointSpecs = mutable.ArrayBuffer[CheckpointSpecConfig]()
+  val crcSpecs = mutable.ArrayBuffer[CrcSpecConfig]()
   val mutations = mutable.ArrayBuffer[Path => Unit]()
   var writeBuilder: Option[WriteSpecBuilder] = None
 }
@@ -92,4 +95,25 @@ private[workload] case class SnapshotSpecConfig(
     expectError: ErrorExpectation = AutoDetect) extends HasAssertion[SnapshotSpec] {
   val deserialize = (n: com.fasterxml.jackson.databind.JsonNode) =>
     JsonUtil.mapper.treeToValue(n, classOf[SnapshotSpec])
+}
+
+private[workload] case class CdfSpecConfig(
+    name: String, startVersion: Option[Long], endVersion: Option[Long],
+    startTimestamp: Option[String], endTimestamp: Option[String],
+    predicate: Option[String], columns: Option[Seq[String]],
+    expectError: Option[String] = None) extends HasAssertion[CdfSpec] {
+  val deserialize = (n: com.fasterxml.jackson.databind.JsonNode) =>
+    JsonUtil.mapper.treeToValue(n, classOf[CdfSpec])
+}
+
+private[workload] case class CheckpointSpecConfig(
+    name: String, version: Long) extends HasAssertion[CheckpointSpec] {
+  val deserialize = (n: com.fasterxml.jackson.databind.JsonNode) =>
+    JsonUtil.mapper.treeToValue(n, classOf[CheckpointSpec])
+}
+
+private[workload] case class CrcSpecConfig(
+    name: String, version: Long) extends HasAssertion[CrcSpec] {
+  val deserialize = (n: com.fasterxml.jackson.databind.JsonNode) =>
+    JsonUtil.mapper.treeToValue(n, classOf[CrcSpec])
 }

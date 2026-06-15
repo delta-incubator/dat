@@ -26,7 +26,7 @@ import com.fasterxml.jackson.databind.module.SimpleModule
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.sql.types.{DataType, StructType}
 
-import io.delta.workload.model.{Failed, ReadQuery, ReadResult, ReadSpec, SnapshotQuery, SnapshotResult, SnapshotSpec, Spec, SpecError, SpecExpectation, Succeeded}
+import io.delta.workload.model._
 
 /**
  * Flattens the outcome to top-level `expected` (success) XOR `error` (failure). `@JsonUnwrapped`
@@ -143,14 +143,27 @@ object JsonUtil {
     Files.write(path, prettyWriter.writeValueAsBytes(spec))
 
 
-  def readReadSpec(path: Path): ReadSpec =
-    mapper.readValue(Files.readAllBytes(path), classOf[ReadSpec])
-
-  def readSnapshotSpec(path: Path): SnapshotSpec =
-    mapper.readValue(Files.readAllBytes(path), classOf[SnapshotSpec])
+  /** Deserialize a spec file as the given concrete type; call sites pass `classOf[...]`. */
+  def readSpecAs[T](path: Path, cls: Class[T]): T =
+    mapper.readValue(Files.readAllBytes(path), cls)
 
   /** Deserialize any spec by its `type` tag into the sealed [[Spec]]. */
-  def readSpec(path: Path): Spec =
-    mapper.readValue(Files.readAllBytes(path), classOf[Spec])
+  def readSpec(path: Path): Spec = readSpecAs(path, classOf[Spec])
+
+  // === CRC field accessors (operate on the raw `.crc` JSON tree) ===
+
+  def crcLongField(node: JsonNode, field: String): Option[Long] =
+    Option(node.get(field)).filterNot(_.isNull).map(_.asLong())
+
+  /** Parse the `setTransactions` field of a `.crc`, which may be a single object or an array. */
+  def crcSetTransactions(node: JsonNode): Option[Seq[AppTxn]] =
+    Option(node.get("setTransactions")).filterNot(_.isNull).flatMap { txnNode =>
+      val actions =
+        if (txnNode.isArray) txnNode.elements().asScala.toSeq
+        else if (txnNode.isObject) Seq(txnNode)
+        else Seq.empty
+      if (actions.isEmpty) None
+      else Some(actions.map(t => AppTxn(t.get("appId").asText(), t.get("version").asLong())))
+    }
 
 }

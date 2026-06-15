@@ -45,6 +45,24 @@ object SnapshotResolver {
     reader.load(tablePath.toString)
   }
 
+  /**
+   * Build a Change Data Feed reader over a version/timestamp range.
+   */
+  def buildCdfReader(spark: SparkSession, tablePath: Path,
+      startVersion: Option[Long], endVersion: Option[Long],
+      startTimestamp: Option[String], endTimestamp: Option[String],
+      latestVersion: Long): DataFrame = {
+    var reader = spark.read.format("delta").option("readChangeFeed", "true")
+    startVersion.foreach(v => reader = reader.option("startingVersion", v))
+    startTimestamp.foreach(ts => reader = reader.option("startingTimestamp", ts))
+    endVersion.foreach(v => reader = reader.option("endingVersion", v))
+    endTimestamp.foreach(ts => reader = reader.option("endingTimestamp", ts))
+    if (endVersion.isEmpty && endTimestamp.isEmpty) {
+      reader = reader.option("endingVersion", latestVersion)
+    }
+    reader.load(tablePath.toString)
+  }
+
   def applyFilters(df: DataFrame, predicate: Option[String],
       columns: Option[Seq[String]]): DataFrame = {
     var result = df

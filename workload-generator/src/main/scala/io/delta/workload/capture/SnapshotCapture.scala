@@ -86,7 +86,7 @@ object SnapshotCapture {
    */
   def validateFromSpec(
       spark: SparkSession, tablePath: Path, specPath: Path, isWriteValidation: Boolean = false): Unit = {
-    val spec = JsonUtil.readSnapshotSpec(specPath)
+    val spec = JsonUtil.readSpecAs(specPath, classOf[SnapshotSpec])
     val specName = specPath.getFileName.toString.stripSuffix(".json")
     val harness = DeltaHarness.get
     def resolve =
@@ -109,7 +109,7 @@ object SnapshotCapture {
   private val NonReproducibleConfigKeys = Set("delta.columnMapping.maxColumnId")
   private val ColumnMappingFieldKeys = Seq("delta.columnMapping.id", "delta.columnMapping.physicalName")
 
-  private def assertMatches(
+  private[capture] def assertMatches(
       expProtocol: ProtocolInfo, actProtocol: Protocol,
       expMeta: MetadataInfo, actMeta: Metadata, isWriteValidation: Boolean, name: String): Unit = {
     def requireEq(field: String, exp: Any, act: Any): Unit =
