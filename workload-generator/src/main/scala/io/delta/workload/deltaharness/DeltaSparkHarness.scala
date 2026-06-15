@@ -16,13 +16,60 @@
 
 package io.delta.workload.deltaharness
 
+import scala.collection.mutable
+
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.delta.{DeltaLog, Snapshot}
+import org.apache.spark.sql.delta.{DeltaLog, DeltaOperations, Snapshot}
+import org.apache.spark.sql.delta.actions.{Action, AddFile, DomainMetadata, RemoveFile, SetTransaction}
 
 class DeltaSparkHarness extends DeltaHarness {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
     DeltaLog.clearCache()
     new DeltaSparkLogView(DeltaLog.forTable(spark, tablePath))
+  }
+
+  override def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Unit = {
+    DeltaLog.clearCache()
+    val deltaLog = DeltaLog.forTable(spark, tablePath)
+    val transaction = deltaLog.startTransaction()
+    val actions = mutable.ArrayBuffer[Action]()
+
+    if (req.schemaJson.isDefined || req.properties.isDefined) {
+      val currentMetadata = transaction.metadata
+      val newSchemaString = req.schemaJson.getOrElse(currentMetadata.schemaString)
+      val newConfig = req.properties
+        .map(props => currentMetadata.configuration ++ props)
+        .getOrElse(currentMetadata.configuration)
+      transaction.updateMetadata(
+        currentMetadata.copy(schemaString = newSchemaString, configuration = newConfig))
+    }
+
+    req.setTransaction.foreach { t =>
+      actions += SetTransaction(t.appId, t.version, Some(System.currentTimeMillis()))
+    }
+    req.addFiles.foreach { f =>
+      actions += AddFile(
+        path = f.path,
+        partitionValues = f.partitionValues,
+        size = f.size,
+        modificationTime = System.currentTimeMillis(),
+        dataChange = f.dataChange)
+    }
+    req.removeFiles.foreach { f =>
+      actions += RemoveFile(
+        path = f.path,
+        deletionTimestamp = Some(System.currentTimeMillis()),
+        dataChange = f.dataChange)
+    }
+    req.addDomainMetadata.foreach { dm =>
+      actions += DomainMetadata(dm.domain, dm.configuration, removed = false)
+    }
+    req.removeDomainMetadata.foreach { domain =>
+      actions += DomainMetadata(domain, "", removed = true)
+    }
+
+    transaction.commit(actions.toSeq, DeltaOperations.ManualUpdate)
+    DeltaLog.clearCache()
   }
 }
 

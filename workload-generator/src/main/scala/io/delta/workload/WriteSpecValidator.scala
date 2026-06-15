@@ -24,7 +24,7 @@ import scala.jdk.CollectionConverters._
 import org.apache.spark.sql.{SaveMode, SparkSession}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 
-import io.delta.workload.deltaharness.DeltaHarness
+import io.delta.workload.deltaharness.{CommitRequest, DeltaHarness}
 
 /**
  * Validates a write spec by:
@@ -331,14 +331,18 @@ object WriteSpecValidator {
     }
   }
 
-  /** Replay schema add/rename/drop via a single metadata-update transaction. */
+  /** Replay schema add/rename/drop via a single metadata-update commit. */
   private def replayEvolveSchema(spark: SparkSession, commit: WriteCommit, tablePath: String): Unit = {
-    import org.apache.spark.sql.delta.DeltaLog
-    DeltaLog.clearCache()
-    val deltaLog = DeltaLog.forTable(spark, tablePath)
-    val txn = deltaLog.startTransaction()
-    val currentMetadata = txn.metadata
-    var fields = currentMetadata.schema.fields.toBuffer
+    val log = DeltaHarness.get.openLog(spark, tablePath)
+    val metaNode = Option(JsonUtil.mapper.readTree(log.update().metadataJson).get("metaData"))
+      .getOrElse(throw new IllegalStateException(
+        s"evolve_schema replay: no metaData action in current snapshot of $tablePath"))
+    val schemaString = Option(metaNode.get("schemaString"))
+      .getOrElse(throw new IllegalStateException(
+        s"evolve_schema replay: metaData has no schemaString in $tablePath"))
+    val currentSchema =
+      DataType.fromJson(schemaString.asText()).asInstanceOf[StructType]
+    var fields = currentSchema.fields.toBuffer
 
     commit.addColumns.foreach { cols =>
       cols.asInstanceOf[Seq[Map[String, Any]]].foreach { col =>
@@ -357,9 +361,8 @@ object WriteSpecValidator {
       fields = fields.filterNot(f => drops.contains(f.name))
     }
 
-    txn.updateMetadata(currentMetadata.copy(schemaString = StructType(fields.toSeq).json))
-    txn.commit(Seq.empty, org.apache.spark.sql.delta.DeltaOperations.ManualUpdate)
-    DeltaLog.clearCache()
+    DeltaHarness.get.commit(spark, tablePath,
+      CommitRequest(schemaJson = Some(StructType(fields.toSeq).json)))
   }
 
   /**

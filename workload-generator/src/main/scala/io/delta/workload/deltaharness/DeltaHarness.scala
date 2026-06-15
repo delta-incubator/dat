@@ -18,6 +18,44 @@ package io.delta.workload.deltaharness
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
+import io.delta.workload.{AddDomainMetadata, AppTxn}
+
+/**
+ * A single add-file action for a low-level commit, fully resolved by the caller: `path` is the
+ * in-table relative path and `size` is the on-disk size of the copied file.
+ */
+case class CommitAddFile(
+    path: String,
+    partitionValues: Map[String, String],
+    size: Long,
+    dataChange: Boolean)
+
+/** A single remove-file action for a low-level commit: `path` is the in-table relative path. */
+case class CommitRemoveFile(path: String, dataChange: Boolean)
+
+/**
+ * A platform-neutral description of a low-level commit. Carries only plain Scala / Spark-SQL
+ * types and the generator's neutral action case classes — never `org.apache.spark.sql.delta.*`.
+ *
+ * @param schemaJson           `StructType.json` to set as `metadata.schemaString`, or None to keep
+ *                             the current schema
+ * @param properties           properties merged into the current `metadata.configuration`, or None
+ *                             to keep the current configuration
+ * @param setTransaction       optional `SetTransaction` (appId/version) action
+ * @param addFiles             resolved add-file actions (in-table path + computed size)
+ * @param removeFiles          resolved remove-file actions to tombstone
+ * @param addDomainMetadata    domain-metadata entries to add
+ * @param removeDomainMetadata domain names to tombstone
+ */
+case class CommitRequest(
+    schemaJson: Option[String] = None,
+    properties: Option[Map[String, String]] = None,
+    setTransaction: Option[AppTxn] = None,
+    addFiles: Seq[CommitAddFile] = Nil,
+    removeFiles: Seq[CommitRemoveFile] = Nil,
+    addDomainMetadata: Seq[AddDomainMetadata] = Nil,
+    removeDomainMetadata: Seq[String] = Nil)
+
 /**
  * Platform-specific backing for Delta-internal access.
  *
@@ -33,6 +71,15 @@ trait DeltaHarness {
    * cache management an adapter-internal concern.
    */
   def openLog(spark: SparkSession, tablePath: String): LogView
+
+  /**
+   * Open a transaction at `tablePath`, apply the metadata update (schema/properties) if present,
+   * and commit the described actions using the platform's `DeltaOperations.ManualUpdate`.
+   *
+   * Implementations MUST clear any internal DeltaLog cache before and after committing, mirroring
+   * the `openLog` cache-clearing contract so consumers always see a fresh view.
+   */
+  def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Unit
 }
 
 trait LogView {

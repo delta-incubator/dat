@@ -18,10 +18,10 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path, Paths, StandardCopyOption}
 
-import scala.collection.mutable
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.StructType
+
+import io.delta.workload.deltaharness.{CommitAddFile, CommitRemoveFile, CommitRequest, DeltaHarness}
 
 /**
  * Applies a low-level `commit` (raw Delta actions) by driving the DeltaLog transaction
@@ -57,31 +57,7 @@ object LowLevelCommit {
       removeDomainMetadata: Option[Seq[String]],
       resolveDataFile: String => Path,
       assignPath: AddFileAction => String): Seq[AddFileAction] = {
-    import org.apache.spark.sql.delta.DeltaLog
-    import org.apache.spark.sql.delta.actions._
-
-    DeltaLog.clearCache()
-    val deltaLog = DeltaLog.forTable(spark, tablePath)
-    val transaction = deltaLog.startTransaction()
-    val actions = mutable.ArrayBuffer[Action]()
-
-    if (schemaDDL.isDefined || tableProperties.isDefined) {
-      val currentMetadata = transaction.metadata
-      val newSchemaString = schemaDDL
-        .map(ddl => StructType.fromDDL(ddl).json)
-        .getOrElse(currentMetadata.schemaString)
-      val newConfig = tableProperties
-        .map(props => currentMetadata.configuration ++ props)
-        .getOrElse(currentMetadata.configuration)
-      transaction.updateMetadata(
-        currentMetadata.copy(schemaString = newSchemaString, configuration = newConfig))
-    }
-
-    txn.foreach { t =>
-      actions += SetTransaction(t.appId, t.version, Some(System.currentTimeMillis()))
-    }
-
-    val effectiveAdds = addFiles.getOrElse(Seq.empty).map { file =>
+    val resolvedAdds = addFiles.getOrElse(Seq.empty).map { file =>
       val src = resolveDataFile(file.dataFile)
       require(Files.exists(src), s"commit addFiles references missing data file: $src")
       val relative = assignPath(file)
@@ -90,33 +66,25 @@ object LowLevelCommit {
         Files.createDirectories(dest.getParent)
         Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING)
       }
-      actions += AddFile(
+      val add = CommitAddFile(
         path = relative,
         partitionValues = file.partitionValues.getOrElse(Map.empty),
         size = Files.size(dest),
-        modificationTime = System.currentTimeMillis(),
         dataChange = file.dataChange.getOrElse(true))
-      file.copy(dataFile = relative)
+      (add, file.copy(dataFile = relative))
     }
 
-    removeFiles.foreach { files =>
-      for (file <- files) {
-        actions += RemoveFile(
-          path = file.path,
-          deletionTimestamp = Some(System.currentTimeMillis()),
-          dataChange = file.dataChange.getOrElse(true))
-      }
-    }
+    val req = CommitRequest(
+      schemaJson = schemaDDL.map(ddl => StructType.fromDDL(ddl).json),
+      properties = tableProperties,
+      setTransaction = txn,
+      addFiles = resolvedAdds.map(_._1),
+      removeFiles = removeFiles.getOrElse(Seq.empty)
+        .map(f => CommitRemoveFile(f.path, f.dataChange.getOrElse(true))),
+      addDomainMetadata = addDomainMetadata.getOrElse(Seq.empty),
+      removeDomainMetadata = removeDomainMetadata.getOrElse(Seq.empty))
+    DeltaHarness.get.commit(spark, tablePath, req)
 
-    addDomainMetadata.foreach { dms =>
-      for (dm <- dms) actions += DomainMetadata(dm.domain, dm.configuration, removed = false)
-    }
-    removeDomainMetadata.foreach { domains =>
-      for (domain <- domains) actions += DomainMetadata(domain, "", removed = true)
-    }
-
-    transaction.commit(actions.toSeq, org.apache.spark.sql.delta.DeltaOperations.ManualUpdate)
-    DeltaLog.clearCache()
-    effectiveAdds
+    resolvedAdds.map(_._2)
   }
 }
