@@ -22,6 +22,7 @@ Exactly one of `expected` or `expectedError` is present. The other is omitted (n
 - [Common Types](#common-types)
 - [Read Spec](#read-spec)
 - [Snapshot Spec](#snapshot-spec)
+- [Write Spec](#write-spec)
 - [table_info.json](#table_infojson)
 - [Expected Data Layout](#expected-data-layout)
 
@@ -342,6 +343,280 @@ These are the raw Delta protocol and metadata JSON structures — not simplified
     "errorCode": "DELTA_UNSUPPORTED_FEATURES_FOR_READ",
     "errorMessage": "Table requires reader feature 'unknownFeature' which is not supported"
   }
+}
+```
+
+---
+
+## Write Spec
+
+**Type:** `"write"`
+
+Tests Delta writer implementations by providing a sequence of write operations to replay. Unlike read specs (which verify reading an existing table), a write spec describes *how to construct* a table from scratch.
+
+A write spec is a portable, implementation-agnostic recipe: it specifies what operations to perform (create table, insert, delete, update, etc.) declaratively, so any conforming Delta writer can interpret and execute it. After replaying all commits, the resulting table is compared against the expected data under `expected/latest/`.
+
+The write spec is written to `write_spec.json` at the workload output root (not under `specs/`). The read and snapshot specs declared alongside a write workload are captured normally under `specs/`.
+
+### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | `string` | yes | Always `"write"` |
+| `commits` | `WriteCommit[]` | yes | Ordered list of commits to replay |
+
+### WriteCommit
+
+Each commit represents a single Delta transaction. There are two categories: high-level operations (SQL semantics) and the low-level `commit` (raw Delta actions).
+
+#### High-Level Operations
+
+These map to SQL-like operations. The writer translates them to appropriate Delta actions.
+
+| Operation | Fields | Description |
+|-----------|--------|-------------|
+| `create_table` | `schema`, `partitionColumns?`, `properties?`, `dataFiles?` | Create a new table with the given schema |
+| `insert` | `dataFiles?` | Append rows from data files |
+| `update` | `predicate`, `set` | Update rows matching predicate |
+| `delete` | `predicate` | Delete rows matching predicate |
+| `evolve_schema` | `addColumns?`, `renameColumns?`, `dropColumns?` | Modify table schema |
+| `update_properties` | `set?`, `remove?` | Modify table properties |
+| `restore` | `version` | Restore table to a previous version |
+
+The reference validator does not replay `restore`: an independent replay generates different file paths, so RESTORE-to-version would reference paths that do not exist in the replayed table. Conforming consumers may implement it.
+
+#### Low-Level Operation
+
+| Operation | Fields | Description |
+|-----------|--------|-------------|
+| `commit` | `schema?`, `tableProperties?`, `txn?`, `addFiles?`, `removeFiles?`, `addDomainMetadata?`, `removeDomainMetadata?` | Directly specify Delta actions. `addFiles[].dataFile` must reference Parquet already in the table (e.g. produced by a prior `insert`); capture copies it under `data/commit_N/`. `removeFiles[].path` must target a file added by a prior low-level `commit`; paths from `insert`/`create_table` are writer-generated and not stable across replay. Deletion vectors are not honored. |
+
+### WriteCommit Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `operation` | `string` | Operation type (see above) |
+| `schema` | `object` | Table schema in Delta JSON format |
+| `partitionColumns` | `string[]` | Partition column names |
+| `properties` | `map` | Table properties (e.g., `delta.enableDeletionVectors`) |
+| `dataFiles` | `string[]` | Relative paths to Parquet data files under `data/`. Files for a partitioned commit keep their `col=val/` directory prefix |
+| `predicate` | `string` | SQL WHERE clause for update/delete |
+| `set` | `map` | Column assignments for update (column → expression) or properties to set |
+| `remove` | `string[]` | Property names to remove |
+| `addColumns` | `object[]` | Columns to add (each with `name`, `type`, `nullable`) |
+| `renameColumns` | `map` | Column renames (old name → new name) |
+| `dropColumns` | `string[]` | Column names to drop |
+| `version` | `long` | Target version for restore |
+| `tableProperties` | `map` | Properties for low-level commit |
+| `txn` | `AppTxn` | Application transaction for idempotent writes |
+| `addFiles` | `AddFileAction[]` | Files to add (low-level) |
+| `removeFiles` | `RemoveFileAction[]` | Files to remove (low-level) |
+| `addDomainMetadata` | `AddDomainMetadata[]` | Domain metadata to add |
+| `removeDomainMetadata` | `string[]` | Domain names to remove |
+
+### AddFileAction (Low-Level)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dataFile` | `string` | Relative path to Parquet file under `data/` |
+| `partitionValues` | `map?` | Partition values for this file |
+| `dataChange` | `boolean?` | Whether this is a data change (default true) |
+
+### RemoveFileAction (Low-Level)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Path of file to remove |
+| `dataChange` | `boolean?` | Whether this is a data change (default true) |
+
+`path` must target a file added by a prior low-level `commit`; paths from `insert`/`create_table` are writer-generated and not stable across replay.
+
+### Expected Data
+
+The final table state after replaying all commits is captured under `expected/latest/`:
+
+- `table_content/` — Parquet files with the expected rows
+- `table_version_metadata.json` — the latest snapshot's `protocol` and `metadata`
+
+### Comparison Semantics
+
+The capture comes from one writer, but a write spec must validate against any conforming Delta writer, so a consumer compares the replayed snapshot against `expected` by capability rather than byte equality:
+
+- **`protocol`** — feature-superset plus version-floor, not exact. The replay must satisfy `minReaderVersion >= expected` and `minWriterVersion >= expected`, and its `readerFeatures`/`writerFeatures` must be supersets of the expected sets (missing arrays count as empty; membership is order-insensitive). A higher version or extra features is allowed.
+- **`configuration`** — only the keys the write spec's own commits declared are checked: `create_table.properties` plus `update_properties.set`, minus `update_properties.remove`. Each declared key must be present and equal; each removed key must be absent. Engine-injected default properties are ignored. If the spec declared no properties, nothing is checked.
+- **rows** (`table_content/`) — multiset comparison; order is irrelevant, but each row must appear the correct number of times.
+
+`schemaString`, `partitionColumns`, and `format` are compared exactly.
+
+### Directory Structure
+
+```
+<test_name>/
+├── write_spec.json              # The write spec
+├── data/                        # Data files referenced by commits
+│   ├── commit_0/
+│   │   └── part-0000-xxx.parquet
+│   ├── commit_1/
+│   │   └── part-0000-yyy.parquet
+│   └── ...
+├── expected/
+│   ├── latest/
+│   │   ├── table_content/
+│   │   └── table_version_metadata.json
+│   └── <read_spec_name>/        # expected_data for each read spec
+│       └── expected_data/
+├── specs/                       # Read/snapshot specs for this workload
+└── table_info.json
+```
+
+### Examples
+
+**Create table and insert:**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": false, "metadata": {} },
+          { "name": "name", "type": "string", "nullable": true, "metadata": {} }
+        ]
+      },
+      "properties": { "delta.enableDeletionVectors": "true" }
+    },
+    {
+      "operation": "insert",
+      "dataFiles": ["data/commit_1/part-0000-abc.parquet"]
+    }
+  ]
+}
+```
+
+**Delete with predicate:**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    { "operation": "create_table", "schema": { } },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
+    { "operation": "delete", "predicate": "id > 100" }
+  ]
+}
+```
+
+**Update with SET:**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    { "operation": "create_table", "schema": { } },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
+    {
+      "operation": "update",
+      "predicate": "status = 'pending'",
+      "set": { "status": "'active'", "count": "count + 1" }
+    }
+  ]
+}
+```
+
+**Schema evolution (add column):**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": false, "metadata": {} }
+        ]
+      }
+    },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
+    {
+      "operation": "evolve_schema",
+      "addColumns": [ { "name": "email", "type": "string", "nullable": true } ]
+    },
+    { "operation": "insert", "dataFiles": ["data/commit_3/part-0000-def.parquet"] }
+  ]
+}
+```
+
+**Partitioned table:**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": true, "metadata": {} },
+          { "name": "region", "type": "string", "nullable": true, "metadata": {} },
+          { "name": "revenue", "type": "integer", "nullable": true, "metadata": {} }
+        ]
+      },
+      "partitionColumns": ["region"]
+    },
+    {
+      "operation": "insert",
+      "dataFiles": [
+        "data/commit_1/region=east/part-0000-abc.parquet",
+        "data/commit_1/region=west/part-0000-def.parquet"
+      ]
+    }
+  ]
+}
+```
+
+**Low-level commit with domain metadata:**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": { },
+      "properties": { "delta.feature.domainMetadata": "supported" }
+    },
+    {
+      "operation": "commit",
+      "addFiles": [
+        { "dataFile": "data/commit_1/part-0000-abc.parquet", "partitionValues": {}, "dataChange": true }
+      ],
+      "addDomainMetadata": [
+        { "domain": "myApp.config", "configuration": "{\"version\": 1}" }
+      ]
+    }
+  ]
+}
+```
+
+**Low-level commit with application transaction:**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    { "operation": "create_table", "schema": { } },
+    {
+      "operation": "commit",
+      "txn": { "appId": "streaming-job-1", "version": 42 },
+      "addFiles": [ { "dataFile": "data/commit_1/part-0000-abc.parquet" } ]
+    }
+  ]
 }
 ```
 

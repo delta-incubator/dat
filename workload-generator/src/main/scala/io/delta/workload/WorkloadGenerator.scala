@@ -126,6 +126,11 @@ object WorkloadGenerator {
       checkAssertion(rs, specsDir.resolve(s"$specName.json"))
     }
 
+    // Write spec - serialize the recorded commit history + expected/latest/
+    ts.writeBuilder.foreach { builder =>
+      builder.buildSpec(spark, destTablePath, testOutputDir)
+    }
+
     // table_info.json - wrap in try/catch for corrupt tables
     try {
       TableInfoWriter.write(spark, destTablePath, testOutputDir,
@@ -133,6 +138,13 @@ object WorkloadGenerator {
     } catch {
       case e: Throwable =>
         System.err.println(s"WARN: Could not write table_info.json for $dirName: ${e.getMessage}")
+    }
+
+    // Replay the write spec against a fresh table and re-validate read/snapshot specs.
+    ts.writeBuilder.foreach { _ =>
+      val replayWarnings = WriteSpecValidator.validate(spark, testOutputDir, dirName)
+      require(replayWarnings.isEmpty,
+        s"Write spec validation FAILED for $dirName:\n  ${replayWarnings.mkString("\n  ")}")
     }
 
     // Repro placeholder
@@ -234,6 +246,21 @@ class TableHandle private[workload] (
     fmt.format(new java.util.Date(tsMillis))
   }
 }
+
+// ---------------------------------------------------------------------------
+// WriteHandle — returned by createTableOp() / writeSpec()
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle for structured write operations. Obtained from [[WorkloadContext.createTableOp]]
+ * (which creates the table and records the create) or [[WorkloadContext.writeSpec]]
+ * (which wraps an already-created [[TableHandle]]).
+ *
+ * Accepts write operations (insertOp, updateOp, deleteOp, ...) that both execute SQL
+ * and record the commit. Call [[WorkloadContext.registerWriteSpec]] to finalize and
+ * obtain a [[TableHandle]] for declaring read/snapshot specs.
+ */
+class WriteHandle private[workload] (private[workload] val table: TableHandle)
 
 // ---------------------------------------------------------------------------
 // WorkloadContext — the user's interface inside a workload() block
@@ -344,6 +371,157 @@ class WorkloadContext private[workload] (
   def forceCheckpoint(tableName: String): Unit = {
     val loc = spark.sql(s"DESCRIBE DETAIL `$tableName`").collect()(0).getAs[String]("location")
     DeltaHarness.get.openLog(spark, loc).checkpoint()
+  }
+
+  // ---- Write specs ----
+
+  private val _writeBuilders = mutable.HashMap[String, WriteSpecBuilder]()
+
+  private def getWriteBuilder(table: TableHandle): WriteSpecBuilder = {
+    val key = s"${workloadName}_${table.tableName}"
+    val builder = _writeBuilders.getOrElseUpdate(key, new WriteSpecBuilder())
+    getTableSpec(table).writeBuilder = Some(builder)
+    builder
+  }
+
+  /** Wrap an already-created [[TableHandle]] for structured write operations. */
+  def writeSpec(table: TableHandle): WriteHandle = {
+    getWriteBuilder(table)
+    new WriteHandle(table)
+  }
+
+  /** Finalize write operations and return the [[TableHandle]] for read/snapshot specs. */
+  def registerWriteSpec(w: WriteHandle): TableHandle = w.table
+
+  /**
+   * Create a table via SQL and record the create_table operation. `schema` is a SQL
+   * DDL string (e.g. "id INT, name STRING NOT NULL"). Returns a [[WriteHandle]] for
+   * further write operations.
+   */
+  def createTableOp(
+      tableName: String,
+      schema: String,
+      properties: Map[String, String] = Map.empty,
+      partitionColumns: Seq[String] = Seq.empty): WriteHandle = {
+    val partitionClause =
+      if (partitionColumns.nonEmpty) s" PARTITIONED BY (${partitionColumns.mkString(", ")})" else ""
+    val propsClause = if (properties.nonEmpty) {
+      s" TBLPROPERTIES (${properties.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")})"
+    } else ""
+    sql(s"CREATE TABLE $tableName ($schema) USING delta$partitionClause$propsClause")
+    val t = registerTable(tableName)
+    getWriteBuilder(t).recordCreateTable(schema, properties, partitionColumns)
+    new WriteHandle(t)
+  }
+
+  /**
+   * Insert `rows` (column -> value maps) and record the insert. An empty `rows` is a no-op:
+   * it produces no commit, so recording it would both desync the commit-index/version mapping
+   * and let the validator pass a spec with nothing to validate.
+   */
+  def insertOp(w: WriteHandle, rows: Seq[Map[String, Any]]): Unit = {
+    require(rows.nonEmpty, "insertOp requires at least one row")
+    val columns = rows.head.keys.toSeq
+    val colList = columns.map(c => s"`$c`").mkString(", ")
+    val valuesList = rows.map { row =>
+      val values = columns.map { c =>
+        row.get(c) match {
+          case Some(s: String) => s"'$s'"
+          case Some(null) | None => "NULL"
+          case Some(v) => v.toString
+        }
+      }
+      s"(${values.mkString(", ")})"
+    }.mkString(", ")
+    sql(s"INSERT INTO ${w.table.tableName} ($colList) VALUES $valuesList")
+    getWriteBuilder(w.table).recordInsert()
+  }
+
+  /** Delete rows matching `predicate` and record the delete. */
+  def deleteOp(w: WriteHandle, predicate: String): Unit = {
+    sql(s"DELETE FROM ${w.table.tableName} WHERE $predicate")
+    getWriteBuilder(w.table).recordDelete(predicate)
+  }
+
+  /** Update rows matching `predicate` with `set` (column -> expression) and record it. */
+  def updateOp(w: WriteHandle, predicate: String, set: Map[String, String]): Unit = {
+    val setClauses = set.map { case (k, v) => s"`$k` = $v" }.mkString(", ")
+    sql(s"UPDATE ${w.table.tableName} SET $setClauses WHERE $predicate")
+    getWriteBuilder(w.table).recordUpdate(predicate, set)
+  }
+
+  /** Restore the table to `version` and record the restore. */
+  def restoreOp(w: WriteHandle, version: Long): Unit = {
+    sql(s"RESTORE TABLE ${w.table.tableName} TO VERSION AS OF $version")
+    getWriteBuilder(w.table).recordRestore(version)
+  }
+
+  /**
+   * Execute a low-level commit of raw Delta actions against the live table and record it. See
+   * [[LowLevelCommit]] for action semantics; addFiles must reference Parquet already in the table.
+   */
+  def commitOp(
+      w: WriteHandle,
+      schemaDDL: Option[String] = None,
+      tableProperties: Option[Map[String, String]] = None,
+      txn: Option[AppTxn] = None,
+      addFiles: Option[Seq[AddFileAction]] = None,
+      removeFiles: Option[Seq[RemoveFileAction]] = None,
+      addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
+      removeDomainMetadata: Option[Seq[String]] = None): Unit = {
+    val effectiveAdds = LowLevelCommit.apply(
+      spark, w.table.sourcePath.toString,
+      schemaDDL = schemaDDL, tableProperties = tableProperties, txn = txn,
+      addFiles = addFiles, removeFiles = removeFiles,
+      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata,
+      resolveDataFile = rel => w.table.sourcePath.resolve(rel),
+      // Copy each source into a fresh in-table file so the added action is independent of the
+      // source's own add. Recording these paths lets a later removeFiles target them by name.
+      assignPath = _ => s"part-commit-${java.util.UUID.randomUUID()}-c000.snappy.parquet")
+    getWriteBuilder(w.table).recordCommit(
+      schemaDDL = schemaDDL, tableProperties = tableProperties, txn = txn,
+      addFiles = if (effectiveAdds.nonEmpty) Some(effectiveAdds) else addFiles,
+      removeFiles = removeFiles,
+      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata)
+  }
+
+  /** Add columns (SQL DDL) and record the schema evolution. */
+  def addColumnsOp(w: WriteHandle, columnsDDL: String): Unit = {
+    require(columnsDDL.nonEmpty, "addColumnsOp requires a non-empty DDL string")
+    sql(s"ALTER TABLE ${w.table.tableName} ADD COLUMNS ($columnsDDL)")
+    getWriteBuilder(w.table).recordAddColumns(columnsDDL)
+  }
+
+  /** Rename a column and record the schema evolution. */
+  def renameColumnOp(w: WriteHandle, oldName: String, newName: String): Unit = {
+    sql(s"ALTER TABLE ${w.table.tableName} RENAME COLUMN $oldName TO $newName")
+    getWriteBuilder(w.table).recordRenameColumn(oldName, newName)
+  }
+
+  /** Drop columns and record the schema evolution. */
+  def dropColumnsOp(w: WriteHandle, columns: Seq[String]): Unit = {
+    require(columns.nonEmpty, "dropColumnsOp requires at least one column")
+    if (columns.size == 1) {
+      sql(s"ALTER TABLE ${w.table.tableName} DROP COLUMN ${columns.head}")
+    } else {
+      sql(s"ALTER TABLE ${w.table.tableName} DROP COLUMNS (${columns.mkString(", ")})")
+    }
+    getWriteBuilder(w.table).recordDropColumns(columns)
+  }
+
+  /** Set table properties and record the update_properties operation. */
+  def setPropertiesOp(w: WriteHandle, props: Map[String, String]): Unit = {
+    require(props.nonEmpty, "setPropertiesOp requires at least one property")
+    val setClause = props.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")
+    sql(s"ALTER TABLE ${w.table.tableName} SET TBLPROPERTIES ($setClause)")
+    getWriteBuilder(w.table).recordSetProperties(props)
+  }
+
+  /** Unset table properties and record the update_properties operation. */
+  def unsetPropertiesOp(w: WriteHandle, props: Seq[String]): Unit = {
+    require(props.nonEmpty, "unsetPropertiesOp requires at least one property")
+    sql(s"ALTER TABLE ${w.table.tableName} UNSET TBLPROPERTIES (${props.map(k => s"'$k'").mkString(", ")})")
+    getWriteBuilder(w.table).recordUnsetProperties(props)
   }
 
   // ---- Table mutations (applied to copied table before spec capture) ----
@@ -567,6 +745,68 @@ trait WorkloadOps {
   /** Force Spark to write a checkpoint file for the given SQL table name. */
   def forceCheckpoint(tableName: String): Unit = current.forceCheckpoint(tableName)
 
+  // ---- Write specs ----
+
+  /** Wrap an already-created [[TableHandle]] for structured write operations. */
+  def writeSpec(table: TableHandle): WriteHandle = current.writeSpec(table)
+
+  /** Finalize write operations and return the [[TableHandle]] for read/snapshot specs. */
+  def registerWriteSpec(w: WriteHandle): TableHandle = current.registerWriteSpec(w)
+
+  /** Create a table via SQL and record the create_table operation. */
+  def createTableOp(
+      tableName: String,
+      schema: String,
+      properties: Map[String, String] = Map.empty,
+      partitionColumns: Seq[String] = Seq.empty): WriteHandle =
+    current.createTableOp(tableName, schema, properties, partitionColumns)
+
+  /** Insert rows and record the insert. */
+  def insertOp(w: WriteHandle, rows: Seq[Map[String, Any]]): Unit = current.insertOp(w, rows)
+
+  /** Delete rows matching `predicate` and record the delete. */
+  def deleteOp(w: WriteHandle, predicate: String): Unit = current.deleteOp(w, predicate)
+
+  /** Update rows matching `predicate` with `set` and record the update. */
+  def updateOp(w: WriteHandle, predicate: String, set: Map[String, String]): Unit =
+    current.updateOp(w, predicate, set)
+
+  /** Restore the table to `version` and record the restore. */
+  def restoreOp(w: WriteHandle, version: Long): Unit = current.restoreOp(w, version)
+
+  /** Execute a low-level commit of raw Delta actions and record it. */
+  def commitOp(
+      w: WriteHandle,
+      schemaDDL: Option[String] = None,
+      tableProperties: Option[Map[String, String]] = None,
+      txn: Option[AppTxn] = None,
+      addFiles: Option[Seq[AddFileAction]] = None,
+      removeFiles: Option[Seq[RemoveFileAction]] = None,
+      addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
+      removeDomainMetadata: Option[Seq[String]] = None): Unit =
+    current.commitOp(w, schemaDDL, tableProperties, txn, addFiles, removeFiles,
+      addDomainMetadata, removeDomainMetadata)
+
+  /** Add columns (SQL DDL) and record the schema evolution. */
+  def addColumnsOp(w: WriteHandle, columnsDDL: String): Unit =
+    current.addColumnsOp(w, columnsDDL)
+
+  /** Rename a column and record the schema evolution. */
+  def renameColumnOp(w: WriteHandle, oldName: String, newName: String): Unit =
+    current.renameColumnOp(w, oldName, newName)
+
+  /** Drop columns and record the schema evolution. */
+  def dropColumnsOp(w: WriteHandle, columns: Seq[String]): Unit =
+    current.dropColumnsOp(w, columns)
+
+  /** Set table properties and record the update_properties operation. */
+  def setPropertiesOp(w: WriteHandle, props: Map[String, String]): Unit =
+    current.setPropertiesOp(w, props)
+
+  /** Unset table properties and record the update_properties operation. */
+  def unsetPropertiesOp(w: WriteHandle, props: Seq[String]): Unit =
+    current.unsetPropertiesOp(w, props)
+
   /** Mutate the copied table's filesystem before specs are captured. */
   def mutateTable(table: TableHandle)(mutation: Path => Unit): Unit =
     current.mutateTable(table)(mutation)
@@ -592,6 +832,7 @@ private[workload] class TableSpec(
   val readSpecs = mutable.ArrayBuffer[ReadSpecConfig]()
   val snapshotSpecs = mutable.ArrayBuffer[SnapshotSpecConfig]()
   val mutations = mutable.ArrayBuffer[Path => Unit]()
+  var writeBuilder: Option[WriteSpecBuilder] = None
 }
 
 case class WorkloadResult(

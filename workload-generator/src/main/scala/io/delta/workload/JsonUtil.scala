@@ -118,24 +118,13 @@ case class TableInfo(
 // Low-level action types
 // =============================================================================
 
-/** Deletion vector descriptor for low-level commits. */
-@JsonPropertyOrder(Array("storageType", "pathOrInlineDv", "offset", "sizeInBytes", "cardinality"))
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-case class DeletionVectorAction(
-    storageType: String,
-    pathOrInlineDv: String,
-    offset: Option[Int] = None,
-    sizeInBytes: Int,
-    cardinality: Long)
-
 /** Add file action for low-level commits. */
-@JsonPropertyOrder(Array("dataFile", "partitionValues", "dataChange", "deletionVector"))
+@JsonPropertyOrder(Array("dataFile", "partitionValues", "dataChange"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 case class AddFileAction(
     dataFile: String,
     partitionValues: Option[Map[String, String]] = None,
-    dataChange: Option[Boolean] = None,
-    deletionVector: Option[DeletionVectorAction] = None)
+    dataChange: Option[Boolean] = None)
 
 /** Remove file action for low-level commits. */
 @JsonPropertyOrder(Array("path", "dataChange"))
@@ -143,6 +132,59 @@ case class AddFileAction(
 case class RemoveFileAction(
     path: String,
     dataChange: Option[Boolean] = None)
+
+/** Application transaction for idempotent low-level commits. */
+@JsonPropertyOrder(Array("appId", "version"))
+case class AppTxn(appId: String, version: Long)
+
+/** Domain metadata entry for low-level commits (added domains). */
+@JsonPropertyOrder(Array("domain", "configuration"))
+case class AddDomainMetadata(
+    domain: String,
+    configuration: String)
+
+// =============================================================================
+// Write spec case classes
+// =============================================================================
+
+/**
+ * A single commit in a write spec. There are two categories of operation:
+ * high-level (SQL semantics, e.g. create_table/insert/update/delete) and the
+ * low-level `commit` (raw Delta actions). Only the fields relevant to a given
+ * operation are populated; all others are absent in the serialized JSON.
+ */
+@JsonPropertyOrder(Array("operation", "schema", "partitionColumns",
+  "properties", "dataFiles", "predicate", "set", "remove",
+  "addColumns", "renameColumns", "dropColumns", "version",
+  "tableProperties", "txn", "addFiles", "removeFiles",
+  "addDomainMetadata", "removeDomainMetadata"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class WriteCommit(
+    operation: String,
+    // High-level fields
+    schema: Option[Any] = None,
+    partitionColumns: Option[Seq[String]] = None,
+    properties: Option[Map[String, String]] = None,
+    dataFiles: Option[Seq[String]] = None,
+    predicate: Option[String] = None,
+    set: Option[Map[String, String]] = None,
+    remove: Option[Seq[String]] = None,
+    addColumns: Option[Any] = None,
+    renameColumns: Option[Map[String, String]] = None,
+    dropColumns: Option[Seq[String]] = None,
+    version: Option[Long] = None,
+    // Low-level commit fields (operation = "commit")
+    tableProperties: Option[Map[String, String]] = None,
+    txn: Option[AppTxn] = None,
+    addFiles: Option[Seq[AddFileAction]] = None,
+    removeFiles: Option[Seq[RemoveFileAction]] = None,
+    addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
+    removeDomainMetadata: Option[Seq[String]] = None)
+
+@JsonPropertyOrder(Array("type", "commits"))
+case class WriteSpec(commits: Seq[WriteCommit]) {
+  val `type`: String = "write"
+}
 
 // =============================================================================
 // Delta log action case classes (for parsing commit JSON)
@@ -227,6 +269,9 @@ object JsonUtil {
 
   def readSnapshotSpec(path: Path): SnapshotSpec =
     mapper.readValue(Files.readAllBytes(path), classOf[SnapshotSpec])
+
+  def readWriteSpec(path: Path): WriteSpec =
+    mapper.readValue(Files.readAllBytes(path), classOf[WriteSpec])
 
   def toRowMultiset(df: DataFrame): Map[String, Int] = {
     // Drop MAP-type columns that Spark can't serialize to JSON
