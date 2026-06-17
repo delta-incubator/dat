@@ -121,6 +121,9 @@ class WorkloadContext private[workload] (
   /** Convert nullable java.lang.Long to Option[Long]. */
   private def opt(v: java.lang.Long): Option[Long] = Option(v).map(_.longValue())
 
+  /** Wrap a possibly-empty collection: Some(it) when non-empty, else None. */
+  private def opt[C <: Iterable[_]](c: C): Option[C] = if (c.nonEmpty) Some(c) else None
+
   // Per-table state: spec names must be unique within each table
   private val _tableSpecNames = mutable.HashMap[String, mutable.HashSet[String]]()
 
@@ -261,7 +264,11 @@ class WorkloadContext private[workload] (
     val propsClause = tblPropertiesClause(properties)
     sql(s"CREATE TABLE $tableName ($schema) USING delta$partitionClause$propsClause")
     val t = registerTable(tableName)
-    getWriteBuilder(t).recordCreateTable(schema, properties, partitionColumns)
+    val b = getWriteBuilder(t)
+    b.record(CreateTableCommit(
+      schema = b.ddlToSchemaJson(schema),
+      partitionColumns = opt(partitionColumns),
+      properties = opt(properties)))
     new WriteHandle(t)
   }
 
@@ -294,7 +301,11 @@ class WorkloadContext private[workload] (
       sql(s"CREATE OR REPLACE TABLE ${w.table.tableName} ($schema) USING delta" +
         s"$partitionClause$propsClause")
     }
-    getWriteBuilder(w.table).recordReplaceTable(schema, properties, partitionColumns, rowSeq)
+    val b = getWriteBuilder(w.table)
+    b.record(ReplaceTableCommit(
+      schema = b.ddlToSchemaJson(schema),
+      partitionColumns = opt(partitionColumns),
+      properties = opt(properties)), rowSeq)
   }
 
   /**
@@ -316,20 +327,20 @@ class WorkloadContext private[workload] (
     } finally {
       FileUtils.deleteDirectory(parquet.getParent.toFile)
     }
-    getWriteBuilder(w.table).recordInsert(rowSeq)
+    getWriteBuilder(w.table).record(InsertCommit(), rowSeq)
   }
 
   /** Delete rows matching `predicate` and record the delete. */
   def deleteOp(w: WriteHandle, predicate: String): Unit = {
     sql(s"DELETE FROM ${w.table.tableName} WHERE $predicate")
-    getWriteBuilder(w.table).recordDelete(predicate)
+    getWriteBuilder(w.table).record(DeleteCommit(predicate))
   }
 
   /** Update rows matching `predicate` with `set` (column -> expression) and record it. */
   def updateOp(w: WriteHandle, predicate: String, set: Map[String, String]): Unit = {
     val setClauses = set.map { case (k, v) => s"`$k` = $v" }.mkString(", ")
     sql(s"UPDATE ${w.table.tableName} SET $setClauses WHERE $predicate")
-    getWriteBuilder(w.table).recordUpdate(predicate, set)
+    getWriteBuilder(w.table).record(UpdateCommit(predicate, set))
   }
 
 
@@ -393,11 +404,12 @@ class WorkloadContext private[workload] (
     val addActions = adds.zipWithIndex.map { case (in, i) =>
       AddFileAction(dataFile = SpecLayout.commitDataFile(idx, s"add_$i.parquet"), dataChange = in.dataChange)
     }
-    builder.recordCommit(
-      schemaDDL = schemaDDL, tableProperties = tableProperties, txn = txn,
-      addFiles = if (addActions.nonEmpty) Some(addActions) else None,
+    builder.record(LowLevelCommitOp(
+      schema = schemaDDL.map(builder.ddlToSchemaJson),
+      tableProperties = tableProperties, txn = txn,
+      addFiles = opt(addActions),
       removeFiles = removeFiles.map(_.map(k => RemoveFileAction(k))),
-      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata)
+      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata))
     builder.recordLowLevelRows(idx, adds.map(_.rows))
     idx
   }
@@ -406,13 +418,14 @@ class WorkloadContext private[workload] (
   def addColumnsOp(w: WriteHandle, columnsDDL: String): Unit = {
     require(columnsDDL.nonEmpty, "addColumnsOp requires a non-empty DDL string")
     sql(s"ALTER TABLE ${w.table.tableName} ADD COLUMNS ($columnsDDL)")
-    getWriteBuilder(w.table).recordAddColumns(columnsDDL)
+    val b = getWriteBuilder(w.table)
+    b.record(EvolveSchemaCommit(addColumns = b.addColumnsJson(columnsDDL)))
   }
 
   /** Rename a column and record the schema evolution. */
   def renameColumnOp(w: WriteHandle, oldName: String, newName: String): Unit = {
     sql(s"ALTER TABLE ${w.table.tableName} RENAME COLUMN $oldName TO $newName")
-    getWriteBuilder(w.table).recordRenameColumn(oldName, newName)
+    getWriteBuilder(w.table).record(EvolveSchemaCommit(renameColumns = Some(Map(oldName -> newName))))
   }
 
   /** Drop columns and record the schema evolution. */
@@ -423,7 +436,7 @@ class WorkloadContext private[workload] (
     } else {
       sql(s"ALTER TABLE ${w.table.tableName} DROP COLUMNS (${columns.mkString(", ")})")
     }
-    getWriteBuilder(w.table).recordDropColumns(columns)
+    getWriteBuilder(w.table).record(EvolveSchemaCommit(dropColumns = opt(columns)))
   }
 
   /** Set table properties and record the update_properties operation. */
@@ -431,14 +444,14 @@ class WorkloadContext private[workload] (
     require(props.nonEmpty, "setPropertiesOp requires at least one property")
     val setClause = props.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")
     sql(s"ALTER TABLE ${w.table.tableName} SET TBLPROPERTIES ($setClause)")
-    getWriteBuilder(w.table).recordSetProperties(props)
+    getWriteBuilder(w.table).record(UpdatePropertiesCommit(set = Some(props)))
   }
 
   /** Unset table properties and record the update_properties operation. */
   def unsetPropertiesOp(w: WriteHandle, props: Seq[String]): Unit = {
     require(props.nonEmpty, "unsetPropertiesOp requires at least one property")
     sql(s"ALTER TABLE ${w.table.tableName} UNSET TBLPROPERTIES (${props.map(k => s"'$k'").mkString(", ")})")
-    getWriteBuilder(w.table).recordUnsetProperties(props)
+    getWriteBuilder(w.table).record(UpdatePropertiesCommit(remove = Some(props)))
   }
 
   // ---- Table mutations (applied to copied table before spec capture) ----

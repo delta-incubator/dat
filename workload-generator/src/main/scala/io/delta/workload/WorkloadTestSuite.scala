@@ -18,7 +18,6 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path, Paths}
 
-import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach}
 import org.scalatest.funsuite.AnyFunSuite
@@ -177,9 +176,5 @@ abstract class WorkloadTestSuite(override val suiteName: String)
         }
       }
     }
-  }
-
-  private def cleanupDir(dir: Path): Unit = {
-    if (Files.exists(dir)) FileUtils.deleteDirectory(dir.toFile)
   }
 }

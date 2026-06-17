@@ -47,105 +47,39 @@ class WriteSpecBuilder {
   // files, each its own row-set). `buildSpec` materializes each to `data/commit_<idx>/add_<i>.parquet`.
   private val lowLevelRows = mutable.HashMap[Int, Seq[Seq[Map[String, Any]]]]()
 
+  /**
+   * Append a recorded commit and return its ordinal (== the table version it produces). For
+   * data-bearing high-level ops (insert / replace-as-select), pass the logical `rows` to
+   * materialize to Parquet in [[buildSpec]]. Low-level per-add rows go through
+   * [[recordLowLevelRows]] (a different `Seq[Seq[...]]` shape).
+   */
   /** The ordinal (== table version) the next recorded commit will occupy. */
   def nextOrdinal: Int = commits.size
+
+  def record(commit: WriteCommit, rows: Seq[Map[String, Any]] = Nil): Int = {
+    val idx = commits.size
+    if (rows.nonEmpty) rowData(idx) = rows
+    commits += commit
+    idx
+  }
 
   /** Store a low-level commit's per-add rows for materialization in [[buildSpec]]. */
   def recordLowLevelRows(idx: Int, addRows: Seq[Seq[Map[String, Any]]]): Unit =
     if (addRows.nonEmpty) lowLevelRows(idx) = addRows
 
-  // === High-level operations (replayed from parameters) ===
-
-  def recordCreateTable(schemaDDL: String, properties: Map[String, String],
-      partitionColumns: Seq[String]): Unit = {
-    commits += CreateTableCommit(
-      schema = ddlToSchemaJson(schemaDDL),
-      partitionColumns = if (partitionColumns.nonEmpty) Some(partitionColumns) else None,
-      properties = if (properties.nonEmpty) Some(properties) else None)
-  }
-
-  def recordReplaceTable(schemaDDL: String, properties: Map[String, String],
-      partitionColumns: Seq[String], rows: Seq[Map[String, Any]]): Unit = {
-    if (rows.nonEmpty) rowData(commits.size) = rows
-    commits += ReplaceTableCommit(
-      schema = ddlToSchemaJson(schemaDDL),
-      partitionColumns = if (partitionColumns.nonEmpty) Some(partitionColumns) else None,
-      properties = if (properties.nonEmpty) Some(properties) else None)
-  }
-
-  def recordInsert(rows: Seq[Map[String, Any]]): Unit = {
-    rowData(commits.size) = rows
-    commits += InsertCommit()
-  }
-
-  def recordDelete(predicate: String): Unit = commits += DeleteCommit(predicate)
-
-  def recordUpdate(predicate: String, set: Map[String, String]): Unit =
-    commits += UpdateCommit(predicate, set)
-
-  def recordSetProperties(props: Map[String, String]): Unit =
-    recordUpdateProperties(props, Seq.empty)
-
-  def recordUnsetProperties(props: Seq[String]): Unit =
-    recordUpdateProperties(Map.empty, props)
-
-  def recordUpdateProperties(set: Map[String, String], unset: Seq[String]): Unit = {
-    // SQL replays SET and UNSET TBLPROPERTIES as separate ALTER statements, so a single commit
-    // cannot do both without producing two table versions and breaking commit index == version.
-    require(!(set.nonEmpty && unset.nonEmpty),
-      "an UpdatePropertiesCommit sets or removes properties, not both in one commit")
-    commits += UpdatePropertiesCommit(
-      set = if (set.nonEmpty) Some(set) else None,
-      remove = if (unset.nonEmpty) Some(unset) else None)
-  }
-
-  def recordAddColumns(columnsDDL: String): Unit =
-    recordEvolveSchema(columnsDDL, Map.empty, Seq.empty)
-
-  def recordRenameColumn(oldName: String, newName: String): Unit =
-    recordEvolveSchema("", Map(oldName -> newName), Seq.empty)
-
-  def recordDropColumns(columns: Seq[String]): Unit =
-    recordEvolveSchema("", Map.empty, columns)
-
-  def recordEvolveSchema(
-      addColumnsDDL: String,
-      renameColumns: Map[String, String],
-      dropColumns: Seq[String]): Unit = {
-    val addCols = if (addColumnsDDL.nonEmpty) {
-      val st = StructType.fromDDL(addColumnsDDL)
-      Some(st.fields.map { f =>
+  /** Parse `ADD COLUMNS` DDL into the spec's `addColumns` JSON (name/type/nullable per field). */
+  private[workload] def addColumnsJson(ddl: String): Option[Any] =
+    if (ddl.nonEmpty) {
+      Some(StructType.fromDDL(ddl).fields.map { f =>
         val typeJson = JsonUtil.mapper.readValue(f.dataType.json, classOf[Any])
         Map[String, Any]("name" -> f.name, "type" -> typeJson, "nullable" -> f.nullable)
       }.toSeq)
     } else None
-    commits += EvolveSchemaCommit(
-      addColumns = addCols,
-      renameColumns = if (renameColumns.nonEmpty) Some(renameColumns) else None,
-      dropColumns = if (dropColumns.nonEmpty) Some(dropColumns) else None)
-  }
 
-
-  // === Low-level operation (recorded raw Delta actions) ===
-
-  /** Records a low-level commit's actions. `addFiles` are logical-Parquet pointers (materialized
-    * in [[buildSpec]]); `removeFiles` reference prior adds by commit ordinal. */
-  def recordCommit(
-      schemaDDL: Option[String] = None,
-      tableProperties: Option[Map[String, String]] = None,
-      txn: Option[AppTxn] = None,
-      addFiles: Option[Seq[AddFileAction]] = None,
-      removeFiles: Option[Seq[RemoveFileAction]] = None,
-      addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
-      removeDomainMetadata: Option[Seq[String]] = None): Unit = {
-    commits += LowLevelCommitOp(
-      schema = schemaDDL.map(ddlToSchemaJson),
-      tableProperties = tableProperties,
-      txn = txn,
-      addFiles = addFiles,
-      removeFiles = removeFiles,
-      addDomainMetadata = addDomainMetadata,
-      removeDomainMetadata = removeDomainMetadata)
+  /** Parse a SQL DDL string into Delta schema JSON using Spark's type parser. */
+  private[workload] def ddlToSchemaJson(ddl: String): Any = {
+    val st = StructType.fromDDL(ddl)
+    JsonUtil.mapper.readValue(st.json, classOf[Any])
   }
 
   // === Serialization ===
@@ -241,11 +175,5 @@ class WriteSpecBuilder {
     JsonUtil.writeSpec(
       latestDir.resolve("table_version_metadata.json"),
       SnapshotExpected(protocol, metadata))
-  }
-
-  /** Parse a SQL DDL string into Delta schema JSON using Spark's type parser. */
-  private def ddlToSchemaJson(ddl: String): Any = {
-    val st = StructType.fromDDL(ddl)
-    JsonUtil.mapper.readValue(st.json, classOf[Any])
   }
 }
