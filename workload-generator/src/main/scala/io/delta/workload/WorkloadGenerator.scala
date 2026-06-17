@@ -24,7 +24,8 @@ import scala.jdk.CollectionConverters._
 import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
-import io.delta.workload.deltaharness.DeltaHarness
+import org.apache.spark.sql.types.StructType
+import io.delta.workload.deltaharness.{CommitRemoveFile, CommitRequest, DeltaHarness}
 
 /**
  * Internal workload generation engine. Use [[WorkloadTestSuite]] as the public API:
@@ -95,6 +96,10 @@ object WorkloadGenerator {
       mutate(destTablePath)
     }
 
+    // When this workload has a write spec, read/snapshot specs point to it (making them
+    // write-derived: a consumer reconstructs the table from the write spec before validating).
+    val writePtr = ts.writeBuilder.map(_ => s"${dirName}_write.json")
+
     // Snapshot specs
     val snapshotNames = mutable.ArrayBuffer[String]()
     val explicits = if (ts.snapshotSpecs.isEmpty) {
@@ -103,7 +108,7 @@ object WorkloadGenerator {
     for (ss <- explicits) {
       SnapshotCapture.capture(spark, dirName, destTablePath, specsDir,
         version = ss.version, timestamp = ss.timestamp,
-        expectError = ss.expectError)
+        expectError = ss.expectError, writeSpec = writePtr)
       val specName = (ss.version, ss.timestamp) match {
         case (Some(v), _) => s"${dirName}_snapshot_v$v"
         case (_, Some(t)) =>
@@ -120,13 +125,13 @@ object WorkloadGenerator {
       ReadCapture.capture(spark, dirName, destTablePath, testOutputDir, specsDir,
         name = rs.name, predicate = rs.predicate, version = rs.version,
         timestamp = rs.timestamp, columns = rs.columns,
-        expectError = rs.expectError)
+        expectError = rs.expectError, writeSpec = writePtr)
       val specName = s"${dirName}_${rs.name}"
       readNames += specName
       checkAssertion(rs, specsDir.resolve(s"$specName.json"))
     }
 
-    // Write spec - serialize the recorded commit history + expected/latest/
+    // Write spec - serialize the recorded commit history into specs/ + expected/<name>_write/
     ts.writeBuilder.foreach { builder =>
       builder.buildSpec(spark, destTablePath, testOutputDir)
     }
@@ -140,11 +145,12 @@ object WorkloadGenerator {
         System.err.println(s"WARN: Could not write table_info.json for $dirName: ${e.getMessage}")
     }
 
-    // Replay the write spec against a fresh table and re-validate read/snapshot specs.
+    // Self-validate the write workload: the single WorkloadValidator replays the write spec into
+    // a fresh table and re-checks the write-derived read/snapshot specs against it.
     ts.writeBuilder.foreach { _ =>
-      val replayWarnings = WriteSpecValidator.validate(spark, testOutputDir, dirName)
-      require(replayWarnings.isEmpty,
-        s"Write spec validation FAILED for $dirName:\n  ${replayWarnings.mkString("\n  ")}")
+      val result = WorkloadValidator.validateTestDir(spark, testOutputDir)
+      require(result.success,
+        s"Write spec validation FAILED for $dirName:\n  ${result.errors.mkString("\n  ")}")
     }
 
     // Repro placeholder
@@ -415,26 +421,58 @@ class WorkloadContext private[workload] (
   }
 
   /**
+   * Replace an existing table's schema/partitioning/properties and all data via
+   * `CREATE OR REPLACE TABLE`, and record the replace_table operation. `schema` is a SQL DDL
+   * string. With non-empty `rows` it is a replace-as-select (RTAS) — a single commit that also
+   * writes the rows. Operates on the table behind `w`; subsequent ops see the new schema.
+   */
+  def replaceTableOp(
+      w: WriteHandle,
+      schema: String,
+      properties: Map[String, String] = Map.empty,
+      partitionColumns: Seq[String] = Seq.empty,
+      rows: Seq[Map[String, Any]] = Seq.empty): Unit = {
+    val partitionClause =
+      if (partitionColumns.nonEmpty) s" PARTITIONED BY (${partitionColumns.mkString(", ")})" else ""
+    val propsClause = if (properties.nonEmpty) {
+      s" TBLPROPERTIES (${properties.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")})"
+    } else ""
+    if (rows.nonEmpty) {
+      // Single-commit replace-as-select: write the rows to a temp Parquet and RTAS from it, so
+      // the resulting schema matches what the bundled spec Parquet will reproduce on replay.
+      val parquet = RowParquet.writeTemp(spark, StructType.fromDDL(schema), rows)
+      try {
+        sql(s"CREATE OR REPLACE TABLE ${w.table.tableName} USING delta$partitionClause" +
+          s"$propsClause AS SELECT * FROM parquet.`${parquet.toAbsolutePath}`")
+      } finally {
+        FileUtils.deleteDirectory(parquet.getParent.toFile)
+      }
+    } else {
+      sql(s"CREATE OR REPLACE TABLE ${w.table.tableName} ($schema) USING delta" +
+        s"$partitionClause$propsClause")
+    }
+    getWriteBuilder(w.table).recordReplaceTable(schema, properties, partitionColumns, rows)
+  }
+
+  /**
    * Insert `rows` (column -> value maps) and record the insert. An empty `rows` is a no-op:
    * it produces no commit, so recording it would both desync the commit-index/version mapping
    * and let the validator pass a spec with nothing to validate.
    */
   def insertOp(w: WriteHandle, rows: Seq[Map[String, Any]]): Unit = {
     require(rows.nonEmpty, "insertOp requires at least one row")
-    val columns = rows.head.keys.toSeq
-    val colList = columns.map(c => s"`$c`").mkString(", ")
-    val valuesList = rows.map { row =>
-      val values = columns.map { c =>
-        row.get(c) match {
-          case Some(s: String) => s"'$s'"
-          case Some(null) | None => "NULL"
-          case Some(v) => v.toString
-        }
-      }
-      s"(${values.mkString(", ")})"
-    }.mkString(", ")
-    sql(s"INSERT INTO ${w.table.tableName} ($colList) VALUES $valuesList")
-    getWriteBuilder(w.table).recordInsert()
+    // Drive the live insert from the SAME materialized Parquet the spec will bundle (via
+    // RowParquet), so the captured table and the replayed table use one value encoder and
+    // cannot diverge by type. The spec's own copy is re-materialized in buildSpec.
+    val schema = RowParquet.schemaAt(spark, w.table.sourcePath.toString,
+      version = None, includePartition = true)
+    val parquet = RowParquet.writeTemp(spark, schema, rows)
+    try {
+      sql(s"INSERT INTO ${w.table.tableName} SELECT * FROM parquet.`${parquet.toAbsolutePath}`")
+    } finally {
+      FileUtils.deleteDirectory(parquet.getParent.toFile)
+    }
+    getWriteBuilder(w.table).recordInsert(rows)
   }
 
   /** Delete rows matching `predicate` and record the delete. */
@@ -450,39 +488,74 @@ class WorkloadContext private[workload] (
     getWriteBuilder(w.table).recordUpdate(predicate, set)
   }
 
-  /** Restore the table to `version` and record the restore. */
-  def restoreOp(w: WriteHandle, version: Long): Unit = {
-    sql(s"RESTORE TABLE ${w.table.tableName} TO VERSION AS OF $version")
-    getWriteBuilder(w.table).recordRestore(version)
-  }
 
   /**
-   * Execute a low-level commit of raw Delta actions against the live table and record it. See
-   * [[LowLevelCommit]] for action semantics; addFiles must reference Parquet already in the table.
+   * Execute a low-level commit of raw Delta actions against the live table and record it. `addFiles`
+   * supply LOGICAL rows; the engine writes them (column-mapping/partition/stats handled) and the
+   * actions are bundled with the raw `txn`/`addDomainMetadata`/`removeDomainMetadata`/schema/property
+   * changes in one commit. `removeFiles` reference a prior low-level add by the ordinal that
+   * [[commitOp]] returned (the commit/version that produced it). Returns this commit's ordinal so a
+   * later `removeFiles` can target it.
    */
   def commitOp(
       w: WriteHandle,
       schemaDDL: Option[String] = None,
       tableProperties: Option[Map[String, String]] = None,
       txn: Option[AppTxn] = None,
-      addFiles: Option[Seq[AddFileAction]] = None,
-      removeFiles: Option[Seq[RemoveFileAction]] = None,
+      addFiles: Option[Seq[AddFileInput]] = None,
+      removeFiles: Option[Seq[Int]] = None,
       addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
-      removeDomainMetadata: Option[Seq[String]] = None): Unit = {
-    val effectiveAdds = LowLevelCommit.apply(
-      spark, w.table.sourcePath.toString,
+      removeDomainMetadata: Option[Seq[String]] = None): Int = {
+    require(
+      schemaDDL.isDefined || tableProperties.exists(_.nonEmpty) || txn.isDefined ||
+        addFiles.exists(_.nonEmpty) || removeFiles.exists(_.nonEmpty) ||
+        addDomainMetadata.exists(_.nonEmpty) || removeDomainMetadata.exists(_.nonEmpty),
+      "commitOp requires at least one action (schema/properties/txn/addFiles/removeFiles/" +
+        "domainMetadata); an empty commit would not advance the table version")
+    val builder = getWriteBuilder(w.table)
+    val idx = builder.nextOrdinal
+    val livePath = w.table.sourcePath.toString
+    val adds = addFiles.getOrElse(Seq.empty)
+
+    // Materialize each add's logical rows to a temp Parquet for the live write.
+    val schema = RowParquet.schemaAt(spark, livePath, version = None, includePartition = true)
+    val tempParquet = adds.map(in => RowParquet.writeTemp(spark, schema, in.rows))
+    // A remove targets all files added at the referenced commit (== that table version).
+    val removePaths = removeFiles.getOrElse(Seq.empty)
+      .flatMap(k => SpecLayout.addPathsAt(w.table.sourcePath, k))
+    try {
+      DeltaHarness.get.commitWithData(spark, livePath, tempParquet.map(_.toAbsolutePath.toString),
+        CommitRequest(
+          schemaJson = schemaDDL.map(ddl => StructType.fromDDL(ddl).json),
+          properties = tableProperties,
+          setTransaction = txn,
+          removeFiles = removePaths.map(p => CommitRemoveFile(p, dataChange = true)),
+          addDomainMetadata = addDomainMetadata.getOrElse(Seq.empty),
+          removeDomainMetadata = removeDomainMetadata.getOrElse(Seq.empty)))
+    } finally {
+      tempParquet.foreach(p => FileUtils.deleteDirectory(p.getParent.toFile))
+    }
+
+    // Enforce the load-bearing commit-index == table-version invariant at the point it is
+    // established: ordinal-based remove resolution (SpecLayout.addPathsAt) keys off it. Fail here,
+    // at the offending op, rather than deferring to buildSpec's whole-spec count check.
+    val newVersion = DeltaHarness.get.openLog(spark, livePath).update().version
+    require(newVersion == idx,
+      s"commitOp produced version $newVersion but expected ordinal $idx; commit index can no " +
+        "longer be used as the table version (ordinal-based removes would mis-resolve)")
+
+    // Record the spec: adds become logical-Parquet pointers (materialized to data/ in buildSpec);
+    // removes become ordinal references.
+    val addActions = adds.zipWithIndex.map { case (in, i) =>
+      AddFileAction(dataFile = SpecLayout.commitDataFile(idx, s"add_$i.parquet"), dataChange = in.dataChange)
+    }
+    builder.recordCommit(
       schemaDDL = schemaDDL, tableProperties = tableProperties, txn = txn,
-      addFiles = addFiles, removeFiles = removeFiles,
-      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata,
-      resolveDataFile = rel => w.table.sourcePath.resolve(rel),
-      // Copy each source into a fresh in-table file so the added action is independent of the
-      // source's own add. Recording these paths lets a later removeFiles target them by name.
-      assignPath = _ => s"part-commit-${java.util.UUID.randomUUID()}-c000.snappy.parquet")
-    getWriteBuilder(w.table).recordCommit(
-      schemaDDL = schemaDDL, tableProperties = tableProperties, txn = txn,
-      addFiles = if (effectiveAdds.nonEmpty) Some(effectiveAdds) else addFiles,
-      removeFiles = removeFiles,
+      addFiles = if (addActions.nonEmpty) Some(addActions) else None,
+      removeFiles = removeFiles.map(_.map(k => RemoveFileAction(k))),
       addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata)
+    builder.recordLowLevelRows(idx, adds.map(_.rows))
+    idx
   }
 
   /** Add columns (SQL DDL) and record the schema evolution. */
@@ -761,6 +834,15 @@ trait WorkloadOps {
       partitionColumns: Seq[String] = Seq.empty): WriteHandle =
     current.createTableOp(tableName, schema, properties, partitionColumns)
 
+  /** Replace an existing table (schema/partitioning/properties + data) and record it. */
+  def replaceTableOp(
+      w: WriteHandle,
+      schema: String,
+      properties: Map[String, String] = Map.empty,
+      partitionColumns: Seq[String] = Seq.empty,
+      rows: Seq[Map[String, Any]] = Seq.empty): Unit =
+    current.replaceTableOp(w, schema, properties, partitionColumns, rows)
+
   /** Insert rows and record the insert. */
   def insertOp(w: WriteHandle, rows: Seq[Map[String, Any]]): Unit = current.insertOp(w, rows)
 
@@ -771,19 +853,17 @@ trait WorkloadOps {
   def updateOp(w: WriteHandle, predicate: String, set: Map[String, String]): Unit =
     current.updateOp(w, predicate, set)
 
-  /** Restore the table to `version` and record the restore. */
-  def restoreOp(w: WriteHandle, version: Long): Unit = current.restoreOp(w, version)
 
-  /** Execute a low-level commit of raw Delta actions and record it. */
+  /** Execute a low-level commit of raw Delta actions and record it. Returns the commit ordinal. */
   def commitOp(
       w: WriteHandle,
       schemaDDL: Option[String] = None,
       tableProperties: Option[Map[String, String]] = None,
       txn: Option[AppTxn] = None,
-      addFiles: Option[Seq[AddFileAction]] = None,
-      removeFiles: Option[Seq[RemoveFileAction]] = None,
+      addFiles: Option[Seq[AddFileInput]] = None,
+      removeFiles: Option[Seq[Int]] = None,
       addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
-      removeDomainMetadata: Option[Seq[String]] = None): Unit =
+      removeDomainMetadata: Option[Seq[String]] = None): Int =
     current.commitOp(w, schemaDDL, tableProperties, txn, addFiles, removeFiles,
       addDomainMetadata, removeDomainMetadata)
 

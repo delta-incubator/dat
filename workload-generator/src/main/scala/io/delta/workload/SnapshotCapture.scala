@@ -27,7 +27,7 @@ object SnapshotCapture {
   def capture(
       spark: SparkSession, testId: String, tablePath: Path, specsDir: Path,
       version: Option[Long] = None, timestamp: Option[String] = None,
-      expectError: Option[String] = None): Unit = {
+      expectError: Option[String] = None, writeSpec: Option[String] = None): Unit = {
 
     require(!(version.isDefined && timestamp.isDefined),
       "Cannot specify both version and timestamp")
@@ -79,7 +79,7 @@ object SnapshotCapture {
     }
 
     val specVersion = version.orElse(if (timestamp.isEmpty) resolvedVersion else None)
-    val spec = SnapshotSpec(specVersion, timestamp, expected, expectedError)
+    val spec = SnapshotSpec(writeSpec, specVersion, timestamp, expected, expectedError)
     JsonUtil.writeSpec(specPath, spec)
     validateFromSpec(spark, tablePath, specPath)
 

@@ -81,6 +81,7 @@ Tests reading data from a Delta table with optional time travel, predicate pushd
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | `string` | yes | Always `"read"` |
+| `writeSpec` | `string` | no | If present, this read is *write-derived*: the named sibling write spec (`specs/<writeSpec>`) must be replayed into a fresh table first, then this read validated against it. Absent ⇒ read-only (validate against the captured table). |
 | `version` | `long` | no | Time travel to this version |
 | `timestamp` | `string` | no | Time travel to this timestamp (format: `yyyy-MM-dd HH:mm:ss.SSS`) |
 | `predicate` | `string` | no | SQL WHERE clause to apply (e.g., `"id > 5"`) |
@@ -244,6 +245,7 @@ Tests constructing a table snapshot at a given version, validating the protocol 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | `string` | yes | Always `"snapshot"` |
+| `writeSpec` | `string` | no | If present, write-derived: replay the named sibling write spec first, then validate this snapshot against it (portable comparison). Absent ⇒ validate against the captured table. |
 | `version` | `long` | no | Snapshot at this version (latest if omitted and no timestamp) |
 | `timestamp` | `string` | no | Snapshot at this timestamp |
 | `expected` | `SnapshotExpected` | no | Present on success |
@@ -354,9 +356,9 @@ These are the raw Delta protocol and metadata JSON structures — not simplified
 
 Tests Delta writer implementations by providing a sequence of write operations to replay. Unlike read specs (which verify reading an existing table), a write spec describes *how to construct* a table from scratch.
 
-A write spec is a portable, implementation-agnostic recipe: it specifies what operations to perform (create table, insert, delete, update, etc.) declaratively, so any conforming Delta writer can interpret and execute it. After replaying all commits, the resulting table is compared against the expected data under `expected/latest/`.
+A write spec is a portable, implementation-agnostic recipe: it specifies what operations to perform (create table, insert, delete, update, etc.) declaratively, so any conforming Delta writer can interpret and execute it. After replaying all commits, the resulting table is compared against the expected data under `expected/<name>_write/`.
 
-The write spec is written to `write_spec.json` at the workload output root (not under `specs/`). The read and snapshot specs declared alongside a write workload are captured normally under `specs/`.
+A write spec is **just another spec**: it lives at `specs/<name>_write.json` alongside the read and snapshot specs of the same workload, and is dispatched by its `type` field like any other. The read/snapshot specs of a write workload carry a `writeSpec` pointer back to it (see below), marking them *write-derived*.
 
 ### Fields
 
@@ -375,21 +377,27 @@ These map to SQL-like operations. The writer translates them to appropriate Delt
 
 | Operation | Fields | Description |
 |-----------|--------|-------------|
-| `create_table` | `schema`, `partitionColumns?`, `properties?`, `dataFiles?` | Create a new table with the given schema |
-| `insert` | `dataFiles?` | Append rows from data files |
+| `create_table` | `schema`, `partitionColumns?`, `properties?` | Create a new table with the given schema |
+| `replace_table` | `schema`, `partitionColumns?`, `properties?`, `dataFiles?` | Replace the table's schema/partitioning/properties (and all data). With `dataFiles` it is a replace-as-select: a single commit that also writes the bundled data. |
+| `insert` | `dataFiles?` | Append the rows in the bundled Parquet data files |
 | `update` | `predicate`, `set` | Update rows matching predicate |
 | `delete` | `predicate` | Delete rows matching predicate |
 | `evolve_schema` | `addColumns?`, `renameColumns?`, `dropColumns?` | Modify table schema |
 | `update_properties` | `set?`, `remove?` | Modify table properties |
-| `restore` | `version` | Restore table to a previous version |
 
-The reference validator does not replay `restore`: an independent replay generates different file paths, so RESTORE-to-version would reference paths that do not exist in the replayed table. Conforming consumers may implement it.
+The data for `insert` and `replace_table` is bundled as Parquet under `data/commit_N/` (the
+generator's authoring API accepts in-memory rows, but the spec always stores Parquet). A
+consumer replays by reading those files — `insert` appends them; `replace_table` performs a
+single replace-as-select from them.
+
+`RENAME COLUMN` / `DROP COLUMN` in `evolve_schema` require the table to have column mapping
+enabled (a Delta/Spark constraint).
 
 #### Low-Level Operation
 
 | Operation | Fields | Description |
 |-----------|--------|-------------|
-| `commit` | `schema?`, `tableProperties?`, `txn?`, `addFiles?`, `removeFiles?`, `addDomainMetadata?`, `removeDomainMetadata?` | Directly specify Delta actions. `addFiles[].dataFile` must reference Parquet already in the table (e.g. produced by a prior `insert`); capture copies it under `data/commit_N/`. `removeFiles[].path` must target a file added by a prior low-level `commit`; paths from `insert`/`create_table` are writer-generated and not stable across replay. Deletion vectors are not honored. |
+| `commit` | `schema?`, `tableProperties?`, `txn?`, `addFiles?`, `removeFiles?`, `addDomainMetadata?`, `removeDomainMetadata?` | Bundle raw Delta actions in one commit. Each `addFiles[]` entry's logical rows are bundled as Parquet (`dataFile`); a consumer writes them **through its own engine write path** (so column mapping, partitioning, and stats are handled — physical names/stats are not in the spec) and commits the resulting `AddFile`s alongside the `txn`/`DomainMetadata`/schema/property changes. `removeFiles[]` tombstone a file added by a prior low-level `commit`, referenced by that commit's ordinal (`addedAtCommit`); since the engine assigns paths per table, the consumer resolves the ordinal to its own table's path. Deletion vectors are out of scope. |
 
 ### WriteCommit Fields
 
@@ -399,14 +407,13 @@ The reference validator does not replay `restore`: an independent replay generat
 | `schema` | `object` | Table schema in Delta JSON format |
 | `partitionColumns` | `string[]` | Partition column names |
 | `properties` | `map` | Table properties (e.g., `delta.enableDeletionVectors`) |
-| `dataFiles` | `string[]` | Relative paths to Parquet data files under `data/`. Files for a partitioned commit keep their `col=val/` directory prefix |
+| `dataFiles` | `string[]` | Relative paths under `data/` to the Parquet holding this op's rows (full rows incl. partition columns). For `insert` and `replace_table` |
 | `predicate` | `string` | SQL WHERE clause for update/delete |
 | `set` | `map` | Column assignments for update (column → expression) or properties to set |
 | `remove` | `string[]` | Property names to remove |
 | `addColumns` | `object[]` | Columns to add (each with `name`, `type`, `nullable`) |
 | `renameColumns` | `map` | Column renames (old name → new name) |
 | `dropColumns` | `string[]` | Column names to drop |
-| `version` | `long` | Target version for restore |
 | `tableProperties` | `map` | Properties for low-level commit |
 | `txn` | `AppTxn` | Application transaction for idempotent writes |
 | `addFiles` | `AddFileAction[]` | Files to add (low-level) |
@@ -416,24 +423,24 @@ The reference validator does not replay `restore`: an independent replay generat
 
 ### AddFileAction (Low-Level)
 
+Carries a pointer to a Parquet of LOGICAL rows; the consumer writes it through its own engine
+write path (physical names, partitioning, and stats are derived per table, not stored).
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `dataFile` | `string` | Relative path to Parquet file under `data/` |
-| `partitionValues` | `map?` | Partition values for this file |
+| `dataFile` | `string` | Relative path under `data/commit_N/` to the Parquet of logical rows (full rows incl. partition columns) |
 | `dataChange` | `boolean?` | Whether this is a data change (default true) |
 
 ### RemoveFileAction (Low-Level)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `path` | `string` | Path of file to remove |
+| `addedAtCommit` | `int` | Ordinal (== table version) of the prior low-level `commit` that added the file(s) to tombstone; the consumer resolves it to its own table's path(s) |
 | `dataChange` | `boolean?` | Whether this is a data change (default true) |
-
-`path` must target a file added by a prior low-level `commit`; paths from `insert`/`create_table` are writer-generated and not stable across replay.
 
 ### Expected Data
 
-The final table state after replaying all commits is captured under `expected/latest/`:
+The final table state after replaying all commits is captured under `expected/<name>_write/`:
 
 - `table_content/` — Parquet files with the expected rows
 - `table_version_metadata.json` — the latest snapshot's `protocol` and `metadata`
@@ -442,30 +449,31 @@ The final table state after replaying all commits is captured under `expected/la
 
 The capture comes from one writer, but a write spec must validate against any conforming Delta writer, so a consumer compares the replayed snapshot against `expected` by capability rather than byte equality:
 
-- **`protocol`** — feature-superset plus version-floor, not exact. The replay must satisfy `minReaderVersion >= expected` and `minWriterVersion >= expected`, and its `readerFeatures`/`writerFeatures` must be supersets of the expected sets (missing arrays count as empty; membership is order-insensitive). A higher version or extra features is allowed.
-- **`configuration`** — only the keys the write spec's own commits declared are checked: `create_table.properties` plus `update_properties.set`, minus `update_properties.remove`. Each declared key must be present and equal; each removed key must be absent. Engine-injected default properties are ignored. If the spec declared no properties, nothing is checked.
+- **`protocol`** — feature-superset plus version-floor, not exact, over the EFFECTIVE feature sets (explicit `readerFeatures`/`writerFeatures` unioned with the features implied by the protocol version). The replay must satisfy `minReaderVersion >= expected` and `minWriterVersion >= expected` and be a feature superset. A higher version or extra features is allowed.
+- **`configuration`** — only the keys the write spec's own commits declared are checked: `create_table`/`replace_table` `properties` plus `update_properties.set`, minus `update_properties.remove` (a `replace_table` resets the declared set). Each declared key must be present and equal; each removed key must be absent. Engine-injected defaults are ignored.
 - **rows** (`table_content/`) — multiset comparison; order is irrelevant, but each row must appear the correct number of times.
 
-`schemaString`, `partitionColumns`, and `format` are compared exactly.
+`schemaString` (with per-field column-mapping `physicalName`/`id` normalized out, since those are minted per table), `partitionColumns`, and `format` are compared.
 
 ### Directory Structure
 
 ```
 <test_name>/
-├── write_spec.json              # The write spec
-├── data/                        # Data files referenced by commits
-│   ├── commit_0/
-│   │   └── part-0000-xxx.parquet
+├── delta/                       # the captured table (for read-only validation)
+├── specs/
+│   ├── <test>_read*.json
+│   ├── <test>_snapshot.json
+│   └── <test>_write.json        # the write spec — just another spec
+├── data/                        # Parquet referenced by write commits
 │   ├── commit_1/
-│   │   └── part-0000-yyy.parquet
+│   │   └── part-00000.parquet
 │   └── ...
 ├── expected/
-│   ├── latest/
+│   ├── <test>_write/            # write spec's final state
 │   │   ├── table_content/
 │   │   └── table_version_metadata.json
 │   └── <read_spec_name>/        # expected_data for each read spec
 │       └── expected_data/
-├── specs/                       # Read/snapshot specs for this workload
 └── table_info.json
 ```
 
@@ -571,10 +579,33 @@ The capture comes from one writer, but a write spec must validate against any co
     },
     {
       "operation": "insert",
-      "dataFiles": [
-        "data/commit_1/region=east/part-0000-abc.parquet",
-        "data/commit_1/region=west/part-0000-def.parquet"
-      ]
+      "dataFiles": ["data/commit_1/part-00000.parquet"]
+    }
+  ]
+}
+```
+
+The bundled Parquet contains the full rows including the partition columns, so a consumer
+appends it and lets its own writer lay out the partition directories.
+
+**Replace-as-select (replace schema + data in one commit):**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    { "operation": "create_table", "schema": { } },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-00000.parquet"] },
+    {
+      "operation": "replace_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": true, "metadata": {} },
+          { "name": "label", "type": "string", "nullable": true, "metadata": {} }
+        ]
+      },
+      "dataFiles": ["data/commit_2/part-00000.parquet"]
     }
   ]
 }
@@ -593,9 +624,7 @@ The capture comes from one writer, but a write spec must validate against any co
     },
     {
       "operation": "commit",
-      "addFiles": [
-        { "dataFile": "data/commit_1/part-0000-abc.parquet", "partitionValues": {}, "dataChange": true }
-      ],
+      "addFiles": [ { "dataFile": "data/commit_1/add_0.parquet" } ],
       "addDomainMetadata": [
         { "domain": "myApp.config", "configuration": "{\"version\": 1}" }
       ]
@@ -614,7 +643,7 @@ The capture comes from one writer, but a write spec must validate against any co
     {
       "operation": "commit",
       "txn": { "appId": "streaming-job-1", "version": 42 },
-      "addFiles": [ { "dataFile": "data/commit_1/part-0000-abc.parquet" } ]
+      "addFiles": [ { "dataFile": "data/commit_1/add_0.parquet" } ]
     }
   ]
 }

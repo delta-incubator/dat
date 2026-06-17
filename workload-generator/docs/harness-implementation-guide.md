@@ -207,6 +207,12 @@ Any spec type can have `"expectedError"` instead of `"expected"`:
 
 Run the operation and assert it fails. Matching the exact error code is ideal but optional — just asserting failure is a valid starting point.
 
+### Write Specs
+
+A `write` spec (`specs/<name>_write.json`) is a portable recipe for *building* a table: an ordered list of `commits` your harness replays into a fresh table, then compares against `expected/<name>_write/`. High-level commits (create/replace/insert/delete/update/schema-evolution/properties) are replayed through your engine's normal write APIs; low-level `commit`s carry raw actions (the data files hold logical rows your engine writes through its own write path, so physical names/stats are engine-derived, and removes reference a prior add by commit ordinal == table version). See the [Write Spec reference](spec-reference.md#write-spec) for the field-level contract.
+
+Because a write spec is replayed (not byte-compared), comparison is **portable**: rows-only data checks, capability-based protocol comparison (your table may use explicit table features where Spark used legacy versions), and column-mapping-normalized schema. A `read`/`snapshot` spec carrying a `writeSpec` pointer is *write-derived* — reconstruct the table by replaying that sibling write spec first, then validate the read/snapshot against it (portably), rather than against a captured `delta/` directory.
+
 ---
 
 ## Step 4: Incremental Adoption

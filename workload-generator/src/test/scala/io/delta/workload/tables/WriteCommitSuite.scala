@@ -16,25 +16,20 @@
 
 package io.delta.workload.tables
 
-import java.nio.file.{Files, Path}
+import java.nio.file.Files
 
 import scala.jdk.CollectionConverters._
 
-import io.delta.workload.{AddDomainMetadata, AddFileAction, AppTxn, JsonUtil,
-  RemoveFileAction, TableHandle, WorkloadTestSuite}
+import io.delta.workload.{AddDomainMetadata, AddFileInput, AppTxn, JsonUtil, TableHandle,
+  WorkloadTestSuite}
 
 /**
- * Low-level `commit` write workloads. Each case drives [[commitOp]] to produce a real
- * `_delta_log` entry, asserts the produced action independently of replay, and relies on
- * the generator's round-trip validation (replay + re-check specs) for end-to-end coverage.
+ * Low-level `commit` write workloads. Each case drives [[commitOp]] to produce a real `_delta_log`
+ * entry, asserts the produced action independently of replay, and relies on the generator's
+ * round-trip validation (replay + re-check specs) for end-to-end coverage. Low-level adds supply
+ * LOGICAL rows; the engine writes the files (paths/stats/partitionValues are engine-derived).
  */
 class WriteCommitSuite extends WorkloadTestSuite("write_commit") {
-
-  /** Active add-file relative paths in the live table's latest version. */
-  private def liveAddPaths(t: TableHandle): Seq[String] = {
-    val log = io.delta.workload.deltaharness.DeltaHarness.get.openLog(spark, t.sourcePath.toString)
-    log.update().allFiles.select("path").collect().map(_.getString(0)).toSeq
-  }
 
   /** Action inner-objects of a given type in a commit's `_delta_log/NNN.json`. */
   private def actionsAt(t: TableHandle, version: Long, action: String): Seq[com.fasterxml.jackson.databind.JsonNode] = {
@@ -88,17 +83,12 @@ class WriteCommitSuite extends WorkloadTestSuite("write_commit") {
   test("commit_add_file") {
     val w = createTableOp("tbl", schema = "id INT, name STRING")
     insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
-    val t0 = registerWriteSpec(w)
-    // Add a second data file via a low-level commit. Its bytes come from the existing insert
-    // file, but commitOp copies them to a fresh in-table path, so the table now holds two
-    // adds (the alice row appears twice).
-    val source = liveAddPaths(t0).head
-    commitOp(w, addFiles = Some(Seq(AddFileAction(dataFile = source))))
+    // Add a second data file via a low-level commit; the engine writes it and assigns the path.
+    commitOp(w, addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
     val t = registerWriteSpec(w)
 
     val v = latestVersion(t)
-    val adds = actionsAt(t, v, "add")
-    assert(adds.size == 1, s"expected one add action at v$v, got ${adds.size}")
+    assert(actionsAt(t, v, "add").size == 1, s"expected one add action at v$v")
 
     readSpec(t, name = "read_all")
     snapshotSpec(t)
@@ -107,21 +97,127 @@ class WriteCommitSuite extends WorkloadTestSuite("write_commit") {
   test("commit_remove_file") {
     val w = createTableOp("tbl", schema = "id INT, name STRING")
     insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
-    val t0 = registerWriteSpec(w)
-    // Add a low-level file (deterministic, capture-assigned path), then tombstone it. Removing
-    // a low-level-added file (rather than an insert file) keeps the path stable across replay.
-    val source = liveAddPaths(t0).head
-    commitOp(w, addFiles = Some(Seq(AddFileAction(dataFile = source))))
-    val added = actionsAt(t0, latestVersion(t0), "add").head.get("path").asText()
-    commitOp(w, removeFiles = Some(Seq(RemoveFileAction(path = added))))
+    // Add a file via a low-level commit, then tombstone it by referencing that commit's ordinal.
+    val added = commitOp(w, addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
     val t = registerWriteSpec(w)
+    val addedPath = actionsAt(t, added.toLong, "add").head.get("path").asText()
+    commitOp(w, removeFiles = Some(Seq(added)))
 
     val v = latestVersion(t)
     val removes = actionsAt(t, v, "remove")
     assert(removes.size == 1, s"expected one remove action at v$v, got ${removes.size}")
-    assert(removes.head.get("path").asText() == added)
+    assert(removes.head.get("path").asText() == addedPath, "remove should tombstone the added file")
 
     readSpec(t, name = "read_after_remove")
+    snapshotSpec(t)
+  }
+
+  test("commit_add_file_with_stats") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    // Stats are engine-computed from the rows (numRecords + per-column min/max/nullCount).
+    commitOp(w, addFiles = Some(Seq(AddFileInput(
+      rows = Seq(Map("id" -> 2, "name" -> "bob"), Map("id" -> 3, "name" -> "cara"))))))
+    val t = registerWriteSpec(w)
+
+    val v = latestVersion(t)
+    val add = actionsAt(t, v, "add").head
+    val stats = JsonUtil.mapper.readTree(add.get("stats").asText())
+    assert(stats.get("numRecords").asLong() == 2, s"stats: ${add.get("stats").asText()}")
+    assert(stats.get("minValues").get("id").asInt() == 2)
+    assert(stats.get("maxValues").get("id").asInt() == 3)
+
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("commit_partitioned_add") {
+    val w = createTableOp("tbl", schema = "id INT, region STRING, value INT",
+      partitionColumns = Seq("region"))
+    insertOp(w, Seq(Map("id" -> 1, "region" -> "east", "value" -> 10)))
+    // The rows carry the partition column; the engine partitions and sets partitionValues.
+    commitOp(w, addFiles = Some(Seq(AddFileInput(
+      rows = Seq(Map("id" -> 2, "region" -> "west", "value" -> 20))))))
+    val t = registerWriteSpec(w)
+
+    val v = latestVersion(t)
+    val add = actionsAt(t, v, "add").head
+    assert(add.get("partitionValues").get("region").asText() == "west")
+
+    readSpec(t, name = "read_all")
+    readSpec(t, predicate = "region = 'west'", name = "read_west")
+    snapshotSpec(t)
+  }
+
+  test("commit_multi_file") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    commitOp(w, addFiles = Some(Seq(
+      AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))),
+      AddFileInput(rows = Seq(Map("id" -> 3, "name" -> "cara"))))))
+    val t = registerWriteSpec(w)
+
+    val v = latestVersion(t)
+    assert(actionsAt(t, v, "add").size == 2, s"expected two add actions at v$v")
+
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("commit_with_schema_and_properties") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    // A single low-level commit that evolves the schema, sets a property, AND adds a file.
+    commitOp(w,
+      schemaDDL = Some("id INT, name STRING, extra STRING"),
+      tableProperties = Some(Map("delta.appendOnly" -> "true")),
+      addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
+    val t = registerWriteSpec(w)
+
+    val v = latestVersion(t)
+    val meta = actionsAt(t, v, "metaData").head
+    assert(meta.get("schemaString").asText().contains("extra"),
+      s"schema: ${meta.get("schemaString").asText()}")
+    assert(meta.get("configuration").get("delta.appendOnly").asText() == "true")
+
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("commit_remove_multi_file_add") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    // One low-level commit adds TWO files; removing by that ordinal must tombstone BOTH.
+    val added = commitOp(w, addFiles = Some(Seq(
+      AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))),
+      AddFileInput(rows = Seq(Map("id" -> 3, "name" -> "cara"))))))
+    val t = registerWriteSpec(w)
+    val addedPaths = actionsAt(t, added.toLong, "add").map(_.get("path").asText()).toSet
+    assert(addedPaths.size == 2, s"expected two adds at v$added, got $addedPaths")
+    commitOp(w, removeFiles = Some(Seq(added)))
+
+    val v = latestVersion(t)
+    val removed = actionsAt(t, v, "remove").map(_.get("path").asText()).toSet
+    assert(removed == addedPaths, s"both files tombstoned: removed=$removed added=$addedPaths")
+
+    readSpec(t, name = "read_all") // only id=1 remains
+    snapshotSpec(t)
+  }
+
+  test("commit_with_column_mapping") {
+    // Low-level adds go through the engine write path, so column mapping is handled: the logical
+    // rows are written under the table's physical names with engine-computed (physical-keyed) stats.
+    val w = createTableOp("tbl", schema = "id INT, name STRING",
+      properties = Map("delta.columnMapping.mode" -> "name"))
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    commitOp(w, addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
+    val t = registerWriteSpec(w)
+
+    val v = latestVersion(t)
+    assert(actionsAt(t, v, "add").size == 1, s"expected one add action at v$v")
+
+    readSpec(t, name = "read_all")
+    readSpec(t, predicate = "name = 'bob'", name = "read_bob")
     snapshotSpec(t)
   }
 }

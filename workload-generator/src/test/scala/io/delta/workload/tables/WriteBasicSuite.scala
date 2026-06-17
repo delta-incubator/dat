@@ -18,7 +18,7 @@ package io.delta.workload.tables
 
 import io.delta.workload.WorkloadTestSuite
 
-/** Basic write workloads producing write_spec.json for Delta writer testing. */
+/** Basic write workloads producing a write spec (specs/&lt;name&gt;_write.json) for Delta writer testing. */
 class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
 
   test("create_and_read") {
@@ -173,6 +173,90 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     readSpec(t, predicate = "region = 'west'", name = "read_west")
     readSpec(t, predicate = "region = 'north'", name = "read_north")
     readSpec(t, predicate = "revenue >= 200", name = "read_high_revenue")
+    snapshotSpec(t)
+  }
+
+  test("replace_table_as_select") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(
+      Map("id" -> 1, "name" -> "alice"),
+      Map("id" -> 2, "name" -> "bob")))
+    // Replace-as-select: new schema + new data in a single commit.
+    replaceTableOp(w,
+      schema = "id INT, label STRING, score DOUBLE",
+      rows = Seq(
+        Map("id" -> 10, "label" -> "x", "score" -> 1.5),
+        Map("id" -> 20, "label" -> "y", "score" -> 2.5)))
+    val t = registerWriteSpec(w)
+    readSpec(t, name = "read_all")
+    readSpec(t, version = 1, name = "read_before_replace")
+    readSpec(t, predicate = "score > 2.0", name = "read_high_score")
+    snapshotSpec(t)
+  }
+
+  test("replace_table_schema_only") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    // Pure replace (no data) then insert under the new schema.
+    replaceTableOp(w,
+      schema = "a BIGINT, b STRING",
+      properties = Map("delta.enableChangeDataFeed" -> "true"))
+    insertOp(w, Seq(Map("a" -> 100L, "b" -> "hello")))
+    val t = registerWriteSpec(w)
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("replace_table_as_select_partitioned") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING")
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+    replaceTableOp(w,
+      schema = "id INT, region STRING, revenue INT",
+      partitionColumns = Seq("region"),
+      rows = Seq(
+        Map("id" -> 10, "region" -> "east", "revenue" -> 100),
+        Map("id" -> 20, "region" -> "west", "revenue" -> 200),
+        Map("id" -> 30, "region" -> "east", "revenue" -> 300)))
+    val t = registerWriteSpec(w)
+    readSpec(t, name = "read_all")
+    readSpec(t, predicate = "region = 'east'", name = "read_east")
+    readSpec(t, predicate = "revenue > 150", name = "read_high")
+    snapshotSpec(t)
+  }
+
+  test("alter_rename_column") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING",
+      properties = Map("delta.columnMapping.mode" -> "name"))
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice"), Map("id" -> 2, "name" -> "bob")))
+    renameColumnOp(w, "name", "full_name")
+    insertOp(w, Seq(Map("id" -> 3, "full_name" -> "charlie")))
+    val t = registerWriteSpec(w)
+    readSpec(t, name = "read_all")
+    readSpec(t, version = 1, name = "read_before_rename")
+    readSpec(t, predicate = "full_name = 'alice'", name = "read_by_renamed")
+    snapshotSpec(t)
+  }
+
+  test("alter_drop_column") {
+    val w = createTableOp("tbl", schema = "id INT, name STRING, scratch STRING",
+      properties = Map("delta.columnMapping.mode" -> "name"))
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "a", "scratch" -> "x")))
+    dropColumnsOp(w, Seq("scratch"))
+    insertOp(w, Seq(Map("id" -> 2, "name" -> "b")))
+    val t = registerWriteSpec(w)
+    readSpec(t, name = "read_all")
+    readSpec(t, version = 1, name = "read_before_drop")
+    snapshotSpec(t)
+  }
+
+  test("alter_unset_properties") {
+    val w = createTableOp("tbl", schema = "id INT, value INT",
+      properties = Map("delta.enableChangeDataFeed" -> "true"))
+    insertOp(w, Seq(Map("id" -> 1, "value" -> 10), Map("id" -> 2, "value" -> 20)))
+    setPropertiesOp(w, Map("delta.enableDeletionVectors" -> "true"))
+    unsetPropertiesOp(w, Seq("delta.enableChangeDataFeed"))
+    val t = registerWriteSpec(w)
+    readSpec(t, name = "read_all")
     snapshotSpec(t)
   }
 

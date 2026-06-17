@@ -21,29 +21,23 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import io.delta.workload.{AddDomainMetadata, AppTxn}
 
 /**
- * A single add-file action for a low-level commit, fully resolved by the caller: `path` is the
- * in-table relative path and `size` is the on-disk size of the copied file.
+ * A remove-file action (tombstone) for a low-level commit, by in-table `path`. The implementation
+ * tombstones the matching active file via the engine, so the tombstone inherits its
+ * `partitionValues`/`size`/`stats` (column-mapping- and partition-correct) — the caller supplies
+ * only the path and the `dataChange` flag.
  */
-case class CommitAddFile(
-    path: String,
-    partitionValues: Map[String, String],
-    size: Long,
-    dataChange: Boolean)
-
-/** A single remove-file action for a low-level commit: `path` is the in-table relative path. */
 case class CommitRemoveFile(path: String, dataChange: Boolean)
 
 /**
- * A platform-neutral description of a low-level commit. Carries only plain Scala / Spark-SQL
- * types and the generator's neutral action case classes — never `org.apache.spark.sql.delta.*`.
+ * A platform-neutral description of a low-level commit's NON-data actions. Carries only plain
+ * Scala types and the generator's neutral action case classes — never `org.apache.spark.sql.delta.*`.
+ * Data files are added separately, via [[DeltaHarness.commitWithData]], so the engine computes
+ * their physical layout / stats (column-mapping aware).
  *
  * @param schemaJson           `StructType.json` to set as `metadata.schemaString`, or None to keep
- *                             the current schema
- * @param properties           properties merged into the current `metadata.configuration`, or None
- *                             to keep the current configuration
+ * @param properties           properties merged into `metadata.configuration`, or None to keep
  * @param setTransaction       optional `SetTransaction` (appId/version) action
- * @param addFiles             resolved add-file actions (in-table path + computed size)
- * @param removeFiles          resolved remove-file actions to tombstone
+ * @param removeFiles          remove-file actions to tombstone (by in-table path)
  * @param addDomainMetadata    domain-metadata entries to add
  * @param removeDomainMetadata domain names to tombstone
  */
@@ -51,7 +45,6 @@ case class CommitRequest(
     schemaJson: Option[String] = None,
     properties: Option[Map[String, String]] = None,
     setTransaction: Option[AppTxn] = None,
-    addFiles: Seq[CommitAddFile] = Nil,
     removeFiles: Seq[CommitRemoveFile] = Nil,
     addDomainMetadata: Seq[AddDomainMetadata] = Nil,
     removeDomainMetadata: Seq[String] = Nil)
@@ -80,6 +73,19 @@ trait DeltaHarness {
    * the `openLog` cache-clearing contract so consumers always see a fresh view.
    */
   def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Unit
+
+  /**
+   * Like [[commit]], but also writes data files through the engine's own write path. Each path in
+   * `addDataParquet` points to a Parquet file of LOGICAL rows; the implementation reads it and
+   * writes it into the table via the engine (honoring column mapping and partitioning, computing
+   * stats), then commits the produced AddFile actions together with `req`'s actions in one commit.
+   *
+   * @return the in-table `AddFile.path`s the engine produced (in `addDataParquet` order; a file
+   *         may yield several adds when partitioned), so callers can reference them later.
+   */
+  def commitWithData(
+      spark: SparkSession, tablePath: String,
+      addDataParquet: Seq[String], req: CommitRequest): Seq[String]
 }
 
 trait LogView {

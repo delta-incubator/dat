@@ -32,7 +32,7 @@ object ReadCapture {
       outputDir: Path, specsDir: Path, name: String,
       predicate: Option[String] = None, version: Option[Long] = None,
       timestamp: Option[String] = None, columns: Option[Seq[String]] = None,
-      expectError: Option[String] = None): Unit = {
+      expectError: Option[String] = None, writeSpec: Option[String] = None): Unit = {
 
     val specName = s"${testId}_$name"
     require(!(version.isDefined && timestamp.isDefined),
@@ -99,7 +99,7 @@ object ReadCapture {
       }
     }
 
-    val spec = ReadSpec(version, timestamp, predicate, columns, expected, expectedError)
+    val spec = ReadSpec(writeSpec, version, timestamp, predicate, columns, expected, expectedError)
     JsonUtil.writeSpec(specPath, spec)
     validateFromSpec(spark, tablePath, expectedDir, specPath)
 
@@ -132,7 +132,7 @@ object ReadCapture {
   }
 
   def validateFromSpec(spark: SparkSession, tablePath: Path,
-      expectedDir: Path, specPath: Path): Unit = {
+      expectedDir: Path, specPath: Path, checkMetadata: Boolean = true): Unit = {
     val spec = JsonUtil.readReadSpec(specPath)
     val specName = specPath.getFileName.toString.stripSuffix(".json")
 
@@ -176,7 +176,7 @@ object ReadCapture {
         specName)
 
       val expectedMetaPath = expectedDir.resolve("expected_metadata")
-      if (Files.exists(expectedMetaPath)) {
+      if (checkMetadata && Files.exists(expectedMetaPath)) {
         // Re-derive which AddFiles the current scan would touch, so we can
         // compare against what was captured at generation time.
         val harness = DeltaHarness.get

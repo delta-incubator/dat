@@ -20,7 +20,7 @@ import scala.collection.mutable
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.delta.{DeltaLog, DeltaOperations, Snapshot}
-import org.apache.spark.sql.delta.actions.{Action, AddFile, DomainMetadata, RemoveFile, SetTransaction}
+import org.apache.spark.sql.delta.actions.{Action, AddFile, DomainMetadata, FileAction, SetTransaction}
 
 class DeltaSparkHarness extends DeltaHarness {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
@@ -29,47 +29,52 @@ class DeltaSparkHarness extends DeltaHarness {
   }
 
   override def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Unit = {
+    commitWithData(spark, tablePath, Seq.empty, req)
+  }
+
+  override def commitWithData(
+      spark: SparkSession, tablePath: String,
+      addDataParquet: Seq[String], req: CommitRequest): Seq[String] = {
     DeltaLog.clearCache()
     val deltaLog = DeltaLog.forTable(spark, tablePath)
-    val transaction = deltaLog.startTransaction()
-    val actions = mutable.ArrayBuffer[Action]()
+    val txn = deltaLog.startTransaction()
+    val now = System.currentTimeMillis()
 
+    // Metadata (schema/properties) is updated first so writeFiles writes against the new schema.
     if (req.schemaJson.isDefined || req.properties.isDefined) {
-      val currentMetadata = transaction.metadata
-      val newSchemaString = req.schemaJson.getOrElse(currentMetadata.schemaString)
-      val newConfig = req.properties
-        .map(props => currentMetadata.configuration ++ props)
-        .getOrElse(currentMetadata.configuration)
-      transaction.updateMetadata(
-        currentMetadata.copy(schemaString = newSchemaString, configuration = newConfig))
+      val current = txn.metadata
+      txn.updateMetadata(current.copy(
+        schemaString = req.schemaJson.getOrElse(current.schemaString),
+        configuration = req.properties.map(current.configuration ++ _).getOrElse(current.configuration)))
     }
 
-    req.setTransaction.foreach { t =>
-      actions += SetTransaction(t.appId, t.version, Some(System.currentTimeMillis()))
-    }
-    req.addFiles.foreach { f =>
-      actions += AddFile(
-        path = f.path,
-        partitionValues = f.partitionValues,
-        size = f.size,
-        modificationTime = System.currentTimeMillis(),
-        dataChange = f.dataChange)
-    }
-    req.removeFiles.foreach { f =>
-      actions += RemoveFile(
-        path = f.path,
-        deletionTimestamp = Some(System.currentTimeMillis()),
-        dataChange = f.dataChange)
-    }
-    req.addDomainMetadata.foreach { dm =>
-      actions += DomainMetadata(dm.domain, dm.configuration, removed = false)
-    }
-    req.removeDomainMetadata.foreach { domain =>
-      actions += DomainMetadata(domain, "", removed = true)
+    // Engine-written data files: column mapping / partitioning / stats all handled by writeFiles.
+    // Commit ALL file actions it returns (AddFile + AddCDCFile when change data feed is enabled);
+    // only the AddFile paths are returned (for ordinal-based remove resolution).
+    val fileActions: Seq[FileAction] = addDataParquet.flatMap { p =>
+      txn.writeFiles(spark.read.parquet(p))
     }
 
-    transaction.commit(actions.toSeq, DeltaOperations.ManualUpdate)
+    val manual = mutable.ArrayBuffer[Action]()
+    req.setTransaction.foreach { t => manual += SetTransaction(t.appId, t.version, Some(now)) }
+
+    if (req.removeFiles.nonEmpty) {
+      // Tombstone the matching ACTIVE file so the RemoveFile inherits its partitionValues/size/
+      // stats (extendedFileMetadata) — column-mapping- and partition-correct, derived not guessed.
+      val active = txn.snapshot.allFiles.collect().map(a => a.path -> a).toMap
+      req.removeFiles.foreach { rf =>
+        val add = active.getOrElse(rf.path, throw new IllegalStateException(
+          s"removeFiles references a path not active in the table: ${rf.path}"))
+        manual += add.removeWithTimestamp(now, rf.dataChange)
+      }
+    }
+
+    req.addDomainMetadata.foreach { dm => manual += DomainMetadata(dm.domain, dm.configuration, removed = false) }
+    req.removeDomainMetadata.foreach { domain => manual += DomainMetadata(domain, "", removed = true) }
+
+    txn.commit(fileActions ++ manual.toSeq, DeltaOperations.ManualUpdate)
     DeltaLog.clearCache()
+    fileActions.collect { case a: AddFile => a.path }
   }
 }
 

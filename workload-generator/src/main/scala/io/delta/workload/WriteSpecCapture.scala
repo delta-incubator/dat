@@ -16,7 +16,7 @@
 
 package io.delta.workload
 
-import java.nio.file.{Files, Path, Paths, StandardCopyOption}
+import java.nio.file.{Files, Path}
 
 import scala.collection.mutable
 
@@ -26,36 +26,62 @@ import org.apache.spark.sql.types.StructType
 import io.delta.workload.deltaharness.DeltaHarness
 
 /**
- * Records structured write operations and serializes them as `write_spec.json`,
- * the portable recipe a Delta writer replays to reconstruct a table.
+ * Records structured write operations and serializes them as a `write` spec
+ * (`specs/<name>_write.json`), the portable recipe a Delta writer replays to reconstruct a table.
  *
- * High-level operations carry SQL semantics (create_table, insert, update, ...);
- * the low-level `commit` carries raw Delta actions. Data files produced by
- * insert/create_table commits are copied under `data/` so the spec is
- * self-sufficient for replay.
+ * High-level operations carry SQL semantics (create_table, insert, update, ...); the low-level
+ * `commit` carries raw Delta actions. Data-bearing ops (insert, replace-as-select, low-level adds)
+ * record their LOGICAL rows, which `buildSpec` materializes to Parquet under `data/` so the spec
+ * is self-sufficient for replay.
  */
 class WriteSpecBuilder {
 
   private val commits = mutable.ArrayBuffer[WriteCommit]()
 
-  // === High-level operations (SQL semantics) ===
+  // Rows for data-bearing high-level ops (insert / replace-as-select), keyed by commit index.
+  // The API takes rows; `buildSpec` materializes them to Parquet under `data/` and the spec
+  // serializes only the resulting file paths.
+  private val rowData = mutable.HashMap[Int, Seq[Map[String, Any]]]()
+
+  // Per-add rows for low-level commits, keyed by commit index (a low-level commit may add several
+  // files, each its own row-set). `buildSpec` materializes each to `data/commit_<idx>/add_<i>.parquet`.
+  private val lowLevelRows = mutable.HashMap[Int, Seq[Seq[Map[String, Any]]]]()
+
+  /** The ordinal (== table version) the next recorded commit will occupy. */
+  def nextOrdinal: Int = commits.size
+
+  /** Store a low-level commit's per-add rows for materialization in [[buildSpec]]. */
+  def recordLowLevelRows(idx: Int, addRows: Seq[Seq[Map[String, Any]]]): Unit =
+    if (addRows.nonEmpty) lowLevelRows(idx) = addRows
+
+  // === High-level operations (replayed from parameters) ===
 
   def recordCreateTable(schemaDDL: String, properties: Map[String, String],
       partitionColumns: Seq[String]): Unit = {
-    commits += WriteCommit(
-      operation = "create_table",
-      schema = Some(ddlToSchemaJson(schemaDDL)),
+    commits += CreateTableCommit(
+      schema = ddlToSchemaJson(schemaDDL),
       partitionColumns = if (partitionColumns.nonEmpty) Some(partitionColumns) else None,
       properties = if (properties.nonEmpty) Some(properties) else None)
   }
 
-  def recordInsert(): Unit = commits += WriteCommit(operation = "insert")
+  def recordReplaceTable(schemaDDL: String, properties: Map[String, String],
+      partitionColumns: Seq[String], rows: Seq[Map[String, Any]]): Unit = {
+    if (rows.nonEmpty) rowData(commits.size) = rows
+    commits += ReplaceTableCommit(
+      schema = ddlToSchemaJson(schemaDDL),
+      partitionColumns = if (partitionColumns.nonEmpty) Some(partitionColumns) else None,
+      properties = if (properties.nonEmpty) Some(properties) else None)
+  }
 
-  def recordDelete(predicate: String): Unit =
-    commits += WriteCommit(operation = "delete", predicate = Some(predicate))
+  def recordInsert(rows: Seq[Map[String, Any]]): Unit = {
+    rowData(commits.size) = rows
+    commits += InsertCommit()
+  }
+
+  def recordDelete(predicate: String): Unit = commits += DeleteCommit(predicate)
 
   def recordUpdate(predicate: String, set: Map[String, String]): Unit =
-    commits += WriteCommit(operation = "update", predicate = Some(predicate), set = Some(set))
+    commits += UpdateCommit(predicate, set)
 
   def recordSetProperties(props: Map[String, String]): Unit =
     recordUpdateProperties(props, Seq.empty)
@@ -64,8 +90,7 @@ class WriteSpecBuilder {
     recordUpdateProperties(Map.empty, props)
 
   def recordUpdateProperties(set: Map[String, String], unset: Seq[String]): Unit = {
-    commits += WriteCommit(
-      operation = "update_properties",
+    commits += UpdatePropertiesCommit(
       set = if (set.nonEmpty) Some(set) else None,
       remove = if (unset.nonEmpty) Some(unset) else None)
   }
@@ -90,18 +115,17 @@ class WriteSpecBuilder {
         Map[String, Any]("name" -> f.name, "type" -> typeJson, "nullable" -> f.nullable)
       }.toSeq)
     } else None
-    commits += WriteCommit(
-      operation = "evolve_schema",
+    commits += EvolveSchemaCommit(
       addColumns = addCols,
       renameColumns = if (renameColumns.nonEmpty) Some(renameColumns) else None,
       dropColumns = if (dropColumns.nonEmpty) Some(dropColumns) else None)
   }
 
-  def recordRestore(version: Long): Unit =
-    commits += WriteCommit(operation = "restore", version = Some(version))
 
-  // === Low-level operation (raw Delta actions) ===
+  // === Low-level operation (recorded raw Delta actions) ===
 
+  /** Records a low-level commit's actions. `addFiles` are logical-Parquet pointers (materialized
+    * in [[buildSpec]]); `removeFiles` reference prior adds by commit ordinal. */
   def recordCommit(
       schemaDDL: Option[String] = None,
       tableProperties: Option[Map[String, String]] = None,
@@ -110,8 +134,7 @@ class WriteSpecBuilder {
       removeFiles: Option[Seq[RemoveFileAction]] = None,
       addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
       removeDomainMetadata: Option[Seq[String]] = None): Unit = {
-    commits += WriteCommit(
-      operation = "commit",
+    commits += LowLevelCommitOp(
       schema = schemaDDL.map(ddlToSchemaJson),
       tableProperties = tableProperties,
       txn = txn,
@@ -124,17 +147,15 @@ class WriteSpecBuilder {
   // === Serialization ===
 
   /**
-   * Serialize recorded operations to `write_spec.json`, enriching the data-producing
+   * Serialize recorded operations to `specs/<name>_write.json`, enriching the data-producing
    * commits (create_table, insert) with the actual data files they added, and writing
-   * the expected final table state to `expected/latest/`.
+   * the expected final table state to `expected/<name>_write/`.
    *
    * New data files are copied to `outputDir/data/commit_<idx>/` and referenced via
    * relative paths in each commit's `dataFiles`, making the spec self-sufficient.
    */
   def buildSpec(spark: SparkSession, tablePath: Path, outputDir: Path): Unit = {
     val log = DeltaHarness.get.openLog(spark, tablePath.toString)
-    val dataDir = outputDir.resolve("data")
-    Files.createDirectories(dataDir)
 
     // Commit index lines up with the table version it produced (commit 0 is the create at
     // version 0). Guard the coupling: each recorded op must map to exactly one version.
@@ -143,65 +164,54 @@ class WriteSpecBuilder {
       s"write spec records ${commits.size} ops but table has ${finalVersion + 1} versions " +
         "(0.." + finalVersion + "); op index can no longer be used as the table version")
 
-    val highLevelDataOps = Set("insert", "create_table")
-
-    // Enrich data-producing commits with the files they added so replay can reconstruct the
-    // table from copied parquet. High-level ops carry these as `dataFiles`; low-level commits
-    // already enumerate them in `addFiles`, whose `dataFile` paths we rewrite to the copies.
-    val enriched = commits.zipWithIndex.map { case (commit, idx) =>
-      if (highLevelDataOps.contains(commit.operation)) {
-        val newFiles = newFilesAt(tablePath, idx)
-        if (newFiles.nonEmpty) {
-          val paths = newFiles.map(f => copyDataFile(tablePath, dataDir, idx, f))
-          commit.copy(dataFiles = Some(paths))
-        } else commit
-      } else if (commit.operation == "commit") {
-        commit.addFiles match {
-          case Some(files) if files.nonEmpty =>
-            val rewritten = files.map { af =>
-              val copied = copyDataFile(tablePath, dataDir, idx, af.dataFile)
-              af.copy(dataFile = copied)
-            }
-            commit.copy(addFiles = Some(rewritten))
-          case _ => commit
+    // Materialize the spec's data files. The API took `rows`; the spec stores Parquet. High-level
+    // insert/replace-as-select rows are written to `data/commit_<idx>/part-00000.parquet` (full
+    // schema incl. partition columns, so replay can Append/RTAS). Low-level commits copy each
+    // add's already-written Parquet to `data/commit_<idx>/<path>` (same in-table path).
+    val enriched = commits.zipWithIndex.map {
+      case (ins: InsertCommit, idx) =>
+        ins.copy(dataFiles = materializeRows(spark, tablePath.toString, outputDir, idx))
+      case (rep: ReplaceTableCommit, idx) =>
+        rep.copy(dataFiles = materializeRows(spark, tablePath.toString, outputDir, idx))
+      case (ll: LowLevelCommitOp, idx) =>
+        // Materialize each low-level add's logical rows to the `dataFile` path recorded in the
+        // action (full schema incl. partition columns, so replay's writeFiles can partition/map).
+        lowLevelRows.get(idx).foreach { addRows =>
+          val schema = RowParquet.schemaAt(spark, tablePath.toString, Some(idx.toLong),
+            includePartition = true)
+          ll.addFiles.getOrElse(Seq.empty).zip(addRows).foreach { case (af, rows) =>
+            RowParquet.writeSingle(spark, schema, rows, outputDir.resolve(af.dataFile))
+          }
         }
-      } else commit
+        ll
+      case (other, _) => other
     }
 
-    JsonUtil.writeSpec(outputDir.resolve("write_spec.json"), WriteSpec(enriched.toSeq))
-    writeExpectedLatest(spark, log, tablePath, outputDir)
+    // `write` is just another spec: it lives in `specs/<name>_write.json` alongside read/snapshot
+    // specs, with its final-state under `expected/<name>_write/`.
+    val writeName = s"${outputDir.getFileName.toString}_write"
+    JsonUtil.writeSpec(
+      outputDir.resolve("specs").resolve(s"$writeName.json"), WriteSpec(enriched.toSeq))
+    writeExpectedLatest(spark, log, tablePath, outputDir.resolve("expected").resolve(writeName))
   }
 
   /**
-   * Copy a table-relative data file into `data/commit_<idx>/`, preserving any `col=val/`
-   * partition-directory prefix, and return the spec-relative path to the copy.
+   * Write the rows recorded for commit `idx` (if any) to `data/commit_<idx>/part-00000.parquet`
+   * using the table's schema at that version, and return the spec-relative path. None if the op
+   * recorded no rows.
    */
-  private def copyDataFile(tablePath: Path, dataDir: Path, idx: Int, relative: String): String = {
-    val src = tablePath.resolve(relative)
-    val dest = dataDir.resolve(s"commit_$idx").resolve(relative)
-    Files.createDirectories(dest.getParent)
-    if (Files.exists(src)) Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING)
-    s"data/commit_$idx/$relative"
+  private def materializeRows(
+      spark: SparkSession, tablePath: String, outputDir: Path, idx: Int): Option[Seq[String]] = {
+    rowData.get(idx).filter(_.nonEmpty).map { rows =>
+      val schema = RowParquet.schemaAt(spark, tablePath, Some(idx.toLong), includePartition = true)
+      val rel = SpecLayout.commitDataFile(idx, "part-00000.parquet")
+      RowParquet.writeSingle(spark, schema, rows, outputDir.resolve(rel))
+      Seq(rel)
+    }
   }
 
   /**
-   * Paths of the AddFile actions in commit `version`'s OWN log entry. Derived directly from
-   * that commit's `add` actions rather than diffing adjacent snapshots' active-file sets,
-   * which would misattribute files when a commit both adds and removes.
-   */
-  private def newFilesAt(tablePath: Path, version: Int): Seq[String] = {
-    val commitFile = tablePath.resolve("_delta_log").resolve(f"$version%020d.json")
-    if (!Files.exists(commitFile)) return Seq.empty
-    val lines = new String(Files.readAllBytes(commitFile), "UTF-8")
-      .split("\n").filter(_.trim.nonEmpty)
-    lines.flatMap { line =>
-      val node = JsonUtil.mapper.readTree(line)
-      Option(node.get("add")).map(_.get("path").asText())
-    }.toSeq
-  }
-
-  /**
-   * Capture the expected final table state under `expected/latest/`:
+   * Capture the expected final table state under the write spec's `expected/<name>_write/`:
    *  - `table_content/` — Parquet of the latest snapshot's rows
    *  - `table_version_metadata.json` — protocol + metadata of the latest snapshot
    */
@@ -209,8 +219,7 @@ class WriteSpecBuilder {
       spark: SparkSession,
       log: io.delta.workload.deltaharness.LogView,
       tablePath: Path,
-      outputDir: Path): Unit = {
-    val latestDir = outputDir.resolve("expected").resolve("latest")
+      latestDir: Path): Unit = {
     Files.createDirectories(latestDir)
 
     val contentDir = latestDir.resolve("table_content")

@@ -96,6 +96,26 @@ class WorkloadValidatorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       s"expected >= 2 specs validated, got ${result.passed}")
   }
 
+  test("validates a write workload (write-derived dispatch + replay)") {
+    spark.sql("DROP TABLE IF EXISTS wtbl")
+    generate("val_write") {
+      val w = createTableOp("wtbl", schema = "id INT, name STRING")
+      insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+      commitOp(w, addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
+      val t = registerWriteSpec(w)
+      readSpec(t, name = "read_all")
+      snapshotSpec(t)
+    }
+
+    // Validate the write workload standalone (post-generation): the write spec replays into a
+    // fresh table and the write-derived read/snapshot specs validate against it.
+    val result = WorkloadValidator.validateTestDir(spark, outputDir.resolve("val_write"))
+    assert(result.success,
+      s"write workload should validate; errors:\n  ${result.errors.mkString("\n  ")}")
+    assert(result.passed >= 3,
+      s"expected >= 3 specs (write + read + snapshot), got ${result.passed}")
+  }
+
   test("validator reports failures when the table diverges from the spec") {
     spark.sql("DROP TABLE IF EXISTS tbl2")
     generate("val_divergence") {

@@ -8,7 +8,7 @@ Write a script that creates Delta tables with normal SQL, declare what specs to 
 
 | Document | Description |
 |----------|-------------|
-| **[Spec Format Reference](docs/spec-reference.md)** | JSON schema for the `read` and `snapshot` spec types, with examples |
+| **[Spec Format Reference](docs/spec-reference.md)** | JSON schema for the `read`, `snapshot`, and `write` spec types, with examples |
 | **[Harness Implementation Guide](docs/harness-implementation-guide.md)** | Step-by-step guide to build a test harness that runs workloads against your engine, with a Rust example |
 | **[Authoring Guide](docs/authoring-guide.md)** | How to write new workload suites, patterns, recipes, and debugging tips |
 
@@ -157,6 +157,9 @@ See the [Spec Format Reference](docs/spec-reference.md) for the complete JSON sc
 |------|--------------|---------|
 | **Read** | Data reads with time travel, predicates, column projection, data skipping | [Reference](docs/spec-reference.md#read-spec) |
 | **Snapshot** | Protocol and metadata reconstruction from log replay | [Reference](docs/spec-reference.md#snapshot-spec) |
+| **Write** | Table construction via a portable sequence of commits (create/replace/insert/delete/update/schema-evolution/properties and low-level `commit`s), replayed into a fresh table | [Reference](docs/spec-reference.md#write-spec) |
+
+The write DSL (`createTableOp`, `insertOp`, `commitOp`, …) is exposed by `WorkloadOps`; see the [Authoring Guide](docs/authoring-guide.md) for how to author write workloads. A `read`/`snapshot` spec captured against a write-built table carries a `writeSpec` pointer and is validated *portably* (replay the sibling write spec into a fresh table, then compare).
 
 ## Workload Suites
 

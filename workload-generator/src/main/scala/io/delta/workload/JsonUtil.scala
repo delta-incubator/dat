@@ -49,9 +49,11 @@ case class SnapshotExpected(protocol: Any, metadata: Any)
 // Spec case classes
 // =============================================================================
 
-@JsonPropertyOrder(Array("type", "version", "timestamp", "predicate", "columns", "expected", "expectedError"))
+@JsonPropertyOrder(Array("type", "writeSpec", "version", "timestamp", "predicate", "columns",
+  "expected", "expectedError"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 case class ReadSpec(
+    writeSpec: Option[String] = None,
     version: Option[Long] = None,
     timestamp: Option[String] = None,
     predicate: Option[String] = None,
@@ -61,9 +63,10 @@ case class ReadSpec(
   val `type`: String = "read"
 }
 
-@JsonPropertyOrder(Array("type", "version", "timestamp", "expected", "expectedError"))
+@JsonPropertyOrder(Array("type", "writeSpec", "version", "timestamp", "expected", "expectedError"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 case class SnapshotSpec(
+    writeSpec: Option[String] = None,
     version: Option[Long] = None,
     timestamp: Option[String] = None,
     expected: Option[SnapshotExpected] = None,
@@ -118,19 +121,37 @@ case class TableInfo(
 // Low-level action types
 // =============================================================================
 
-/** Add file action for low-level commits. */
-@JsonPropertyOrder(Array("dataFile", "partitionValues", "dataChange"))
+/**
+ * Add-file action serialized in a low-level `commit`. `dataFile` points to a Parquet of LOGICAL
+ * rows under `data/commit_N/`; on replay the engine writes it into the table (column-mapping- and
+ * partition-aware, stats computed), so physical names/stats are derived per table, never stored.
+ */
+@JsonPropertyOrder(Array("dataFile", "dataChange"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 case class AddFileAction(
     dataFile: String,
-    partitionValues: Option[Map[String, String]] = None,
     dataChange: Option[Boolean] = None)
 
-/** Remove file action for low-level commits. */
-@JsonPropertyOrder(Array("path", "dataChange"))
+/**
+ * Remove-file action (tombstone) for low-level commits. References a prior low-level add by the
+ * commit ordinal that produced it (`addedAtCommit`); the engine assigns file paths per table, so
+ * the tombstone is resolved to the actual path(s) at replay. The tombstone inherits the live
+ * add's partitionValues/size/stats (extendedFileMetadata).
+ */
+@JsonPropertyOrder(Array("addedAtCommit", "dataChange"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 case class RemoveFileAction(
-    path: String,
+    addedAtCommit: Int,
+    dataChange: Option[Boolean] = None)
+
+/**
+ * Capture-time input for a low-level add: the caller supplies LOGICAL `rows` (matching the table's
+ * schema, including any partition columns). The framework materializes them and writes them
+ * through the engine; physical layout / stats are engine-derived. Not serialized — it only
+ * crosses the `commitOp` boundary.
+ */
+case class AddFileInput(
+    rows: Seq[Map[String, Any]],
     dataChange: Option[Boolean] = None)
 
 /** Application transaction for idempotent low-level commits. */
@@ -148,42 +169,138 @@ case class AddDomainMetadata(
 // =============================================================================
 
 /**
- * A single commit in a write spec. There are two categories of operation:
- * high-level (SQL semantics, e.g. create_table/insert/update/delete) and the
- * low-level `commit` (raw Delta actions). Only the fields relevant to a given
- * operation are populated; all others are absent in the serialized JSON.
+ * A single commit in a write spec. Each operation is its own case class carrying only the
+ * fields it uses, so illegal field combinations are unrepresentable and `match`es over the
+ * hierarchy are exhaustive. The `operation` discriminator is written by Jackson as the leading
+ * JSON property (`@JsonTypeInfo`); the in-memory `operation` accessor is `@JsonIgnore`d so it is
+ * not also serialized as a duplicate field.
+ *
+ * High-level ops (create_table/replace_table/insert/update/delete/evolve_schema/
+ * update_properties) replay from their parameters; the low-level [[LowLevelCommitOp]] replays its
+ * recorded raw actions.
  */
-@JsonPropertyOrder(Array("operation", "schema", "partitionColumns",
-  "properties", "dataFiles", "predicate", "set", "remove",
-  "addColumns", "renameColumns", "dropColumns", "version",
-  "tableProperties", "txn", "addFiles", "removeFiles",
-  "addDomainMetadata", "removeDomainMetadata"))
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY,
+  property = "operation")
+@JsonSubTypes(Array(
+  new JsonSubTypes.Type(value = classOf[CreateTableCommit], name = "create_table"),
+  new JsonSubTypes.Type(value = classOf[ReplaceTableCommit], name = "replace_table"),
+  new JsonSubTypes.Type(value = classOf[InsertCommit], name = "insert"),
+  new JsonSubTypes.Type(value = classOf[DeleteCommit], name = "delete"),
+  new JsonSubTypes.Type(value = classOf[UpdateCommit], name = "update"),
+  new JsonSubTypes.Type(value = classOf[EvolveSchemaCommit], name = "evolve_schema"),
+  new JsonSubTypes.Type(value = classOf[UpdatePropertiesCommit], name = "update_properties"),
+  new JsonSubTypes.Type(value = classOf[LowLevelCommitOp], name = "commit")))
+sealed trait WriteCommit {
+  @JsonIgnore def operation: String
+}
+
+// ---- High-level operations (replayed from parameters) ----
+
+@JsonPropertyOrder(Array("schema", "partitionColumns", "properties"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
-case class WriteCommit(
-    operation: String,
-    // High-level fields
-    schema: Option[Any] = None,
+case class CreateTableCommit(
+    schema: Any,
+    partitionColumns: Option[Seq[String]] = None,
+    properties: Option[Map[String, String]] = None) extends WriteCommit {
+  @JsonIgnore val operation = "create_table"
+}
+
+/**
+ * `CREATE OR REPLACE TABLE` — replaces schema/partitioning/properties and all data. With `rows`
+ * it is a replace-as-select (RTAS): a single commit that replaces the table and writes the rows
+ * (replayed via `CREATE OR REPLACE TABLE … USING delta … AS SELECT … FROM VALUES`).
+ */
+@JsonPropertyOrder(Array("schema", "partitionColumns", "properties", "dataFiles"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class ReplaceTableCommit(
+    schema: Any,
     partitionColumns: Option[Seq[String]] = None,
     properties: Option[Map[String, String]] = None,
-    dataFiles: Option[Seq[String]] = None,
-    predicate: Option[String] = None,
-    set: Option[Map[String, String]] = None,
-    remove: Option[Seq[String]] = None,
+    dataFiles: Option[Seq[String]] = None) extends WriteCommit {
+  @JsonIgnore val operation = "replace_table"
+}
+
+@JsonPropertyOrder(Array("dataFiles"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class InsertCommit(dataFiles: Option[Seq[String]] = None) extends WriteCommit {
+  @JsonIgnore val operation = "insert"
+}
+
+@JsonPropertyOrder(Array("predicate"))
+case class DeleteCommit(predicate: String) extends WriteCommit {
+  @JsonIgnore val operation = "delete"
+}
+
+@JsonPropertyOrder(Array("predicate", "set"))
+case class UpdateCommit(predicate: String, set: Map[String, String]) extends WriteCommit {
+  @JsonIgnore val operation = "update"
+}
+
+@JsonPropertyOrder(Array("addColumns", "renameColumns", "dropColumns"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class EvolveSchemaCommit(
     addColumns: Option[Any] = None,
     renameColumns: Option[Map[String, String]] = None,
-    dropColumns: Option[Seq[String]] = None,
-    version: Option[Long] = None,
-    // Low-level commit fields (operation = "commit")
+    dropColumns: Option[Seq[String]] = None) extends WriteCommit {
+  @JsonIgnore val operation = "evolve_schema"
+}
+
+@JsonPropertyOrder(Array("set", "remove"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class UpdatePropertiesCommit(
+    set: Option[Map[String, String]] = None,
+    remove: Option[Seq[String]] = None) extends WriteCommit {
+  @JsonIgnore val operation = "update_properties"
+}
+
+// ---- Low-level operation (raw Delta actions; data written via the engine on replay) ----
+
+@JsonPropertyOrder(Array("schema", "tableProperties", "txn", "addFiles", "removeFiles",
+  "addDomainMetadata", "removeDomainMetadata"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class LowLevelCommitOp(
+    schema: Option[Any] = None,
     tableProperties: Option[Map[String, String]] = None,
     txn: Option[AppTxn] = None,
     addFiles: Option[Seq[AddFileAction]] = None,
     removeFiles: Option[Seq[RemoveFileAction]] = None,
     addDomainMetadata: Option[Seq[AddDomainMetadata]] = None,
-    removeDomainMetadata: Option[Seq[String]] = None)
+    removeDomainMetadata: Option[Seq[String]] = None) extends WriteCommit {
+  @JsonIgnore val operation = "commit"
+}
 
 @JsonPropertyOrder(Array("type", "commits"))
 case class WriteSpec(commits: Seq[WriteCommit]) {
   val `type`: String = "write"
+}
+
+/**
+ * Layout conventions for a workload output directory, shared by capture and replay so the
+ * "commit index -> data directory" decision lives in one place (not duplicated across
+ * [[WriteSpecBuilder]] and [[WorkloadValidator]]).
+ */
+private[workload] object SpecLayout {
+  /** Relative path (from the output dir) of the data directory for commit `idx`. */
+  def commitDataDir(idx: Int): String = s"data/commit_$idx"
+
+  /** Relative path (from the output dir) of `name` under commit `idx`'s data directory. */
+  def commitDataFile(idx: Int, name: String): String = s"${commitDataDir(idx)}/$name"
+
+  /**
+   * The in-table `AddFile.path`s a commit produced, read from its `_delta_log/<version>.json`.
+   * Because commit index == table version, a low-level remove's `addedAtCommit` ordinal is the
+   * version whose adds it tombstones — resolved here against the actual (engine-assigned) paths.
+   */
+  def addPathsAt(tablePath: java.nio.file.Path, version: Int): Seq[String] = {
+    val commitFile = tablePath.resolve("_delta_log").resolve(f"$version%020d.json")
+    if (!java.nio.file.Files.exists(commitFile)) return Seq.empty
+    new String(java.nio.file.Files.readAllBytes(commitFile), "UTF-8")
+      .split("\n").filter(_.trim.nonEmpty)
+      .flatMap { line =>
+        val node = JsonUtil.mapper.readTree(line)
+        Option(node.get("add")).map(_.get("path").asText())
+      }.toSeq
+  }
 }
 
 // =============================================================================
