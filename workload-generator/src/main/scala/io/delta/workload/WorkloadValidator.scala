@@ -25,6 +25,8 @@ import scala.concurrent.duration.Duration
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode}
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.{SaveMode, SparkSession}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
@@ -126,10 +128,9 @@ object WorkloadValidator {
 
             case "snapshot" =>
               writePtr match {
-                case Some(ws) =>
-                  // Write-derived: protocol/metadata are Spark's deterministic output and were
-                  // validated at capture time. Standalone, we only confirm the write spec replays.
-                  replayOf(ws)
+                case Some(ws) => // write-derived: validate the replayed table's snapshot
+                  validateSnapshotDerived(spark, replayOf(ws), specFile,
+                    JsonUtil.readWriteSpec(specsDir.resolve(ws)))
                   passed += 1
                 case None =>
                   validateReadOnly(SnapshotCapture.validateFromSpec(spark, deltaTable, specFile))
@@ -192,6 +193,110 @@ object WorkloadValidator {
       spark.read.format("delta").load(replayTablePath.toAbsolutePath.toString))
     JsonUtil.assertMultisetsEqual(expected, actual, s"${writeName}_latest")
   }
+
+  /**
+   * Validate a write-derived snapshot spec against the table replayed from its write spec: the
+   * replay must reproduce the captured `protocol` and `metadata`. Protocol is compared exactly
+   * (replay is Spark from the same commits, so it is deterministic). For metadata we compare the
+   * fields that are reproducible across an independently-created table: `schemaString` (with
+   * per-field column-mapping ids stripped, since those are minted per table), `partitionColumns`,
+   * `format`, and the author-declared `configuration` keys (engine-injected defaults, table `id`,
+   * and `createdTime` differ between table instances and are not compared).
+   */
+  private def validateSnapshotDerived(
+      spark: SparkSession, replayTablePath: Path, specFile: Path, writeSpec: WriteSpec): Unit = {
+    val spec = JsonUtil.readSnapshotSpec(specFile)
+    val name = specFile.getFileName.toString.stripSuffix(".json")
+    val (declaredKeys, removedKeys) = declaredConfiguration(writeSpec)
+    spec.expected.foreach { exp =>
+      val log = DeltaHarness.get.openLog(spark, replayTablePath.toString)
+      val snapshot = (spec.version, spec.timestamp) match {
+        case (Some(v), _) => log.getSnapshotAt(v)
+        case _ => log.update()
+      }
+      val expProtocol = JsonUtil.mapper.valueToTree[JsonNode](exp.protocol)
+      val replayProtocol = JsonUtil.mapper.readTree(snapshot.protocolJson).get("protocol")
+      require(JsonUtil.canonicalJson(expProtocol) == JsonUtil.canonicalJson(replayProtocol),
+        s"snapshot '$name': protocol mismatch (expected ${JsonUtil.canonicalJson(expProtocol)}, " +
+          s"got ${JsonUtil.canonicalJson(replayProtocol)})")
+      val expectedMeta = JsonUtil.mapper.valueToTree[JsonNode](exp.metadata)
+      val replayMeta = JsonUtil.mapper.readTree(snapshot.metadataJson).get("metaData")
+      configurationViolation(expectedMeta, replayMeta, declaredKeys, removedKeys).foreach { reason =>
+        throw new IllegalStateException(s"snapshot '$name': metadata.configuration mismatch ($reason)")
+      }
+      require(normalizedSchema(expectedMeta) == normalizedSchema(replayMeta),
+        s"snapshot '$name': metadata.schemaString mismatch")
+      for (field <- Seq("partitionColumns", "format"))
+        require(canonicalField(expectedMeta, field) == canonicalField(replayMeta, field),
+          s"snapshot '$name': metadata.$field mismatch")
+    }
+  }
+
+  /** The config keys the write spec's commits declared: (still-in-effect, removed). */
+  private def declaredConfiguration(writeSpec: WriteSpec): (Set[String], Set[String]) = {
+    val declared = mutable.LinkedHashSet[String]()
+    val removed = mutable.LinkedHashSet[String]()
+    for (commit <- writeSpec.commits) commit match {
+      case c: CreateTableCommit => c.properties.foreach(declared ++= _.keys)
+      case c: ReplaceTableCommit =>
+        declared.clear(); removed.clear()
+        c.properties.foreach(declared ++= _.keys)
+      case c: UpdatePropertiesCommit =>
+        c.set.foreach { s => declared ++= s.keys; removed --= s.keys }
+        c.remove.foreach { r => removed ++= r; declared --= r }
+      case _ => ()
+    }
+    (declared.toSet, removed.toSet)
+  }
+
+  /** Each declared key present + equal on the replay; each removed key absent. First violation. */
+  private def configurationViolation(
+      expectedMeta: JsonNode, replayMeta: JsonNode,
+      declaredKeys: Set[String], removedKeys: Set[String]): Option[String] = {
+    val expConfig = Option(expectedMeta.get("configuration")).filterNot(_.isNull)
+    val repConfig = Option(replayMeta.get("configuration")).filterNot(_.isNull)
+    def get(config: Option[JsonNode], key: String): Option[String] =
+      config.flatMap(c => Option(c.get(key))).filterNot(_.isNull).map(_.asText())
+    declaredKeys.toSeq.sorted.collectFirst {
+      case key if get(repConfig, key) != get(expConfig, key) =>
+        s"key '$key' expected ${get(expConfig, key)}, got ${get(repConfig, key)}"
+    }.orElse {
+      removedKeys.toSeq.sorted.collectFirst {
+        case key if get(repConfig, key).isDefined => s"removed key '$key' still present"
+      }
+    }
+  }
+
+  /**
+   * Canonicalize `metadata.schemaString`, stripping per-field column-mapping identifiers
+   * (`delta.columnMapping.physicalName`/`.id`) which are minted per table and so are not a
+   * meaningful equality target across an independently-replayed table.
+   */
+  private def normalizedSchema(meta: JsonNode): String =
+    Option(meta.get("schemaString")).filterNot(_.isNull) match {
+      case None => "null"
+      case Some(s) =>
+        val tree = JsonUtil.mapper.readTree(s.asText())
+        stripColumnMapping(tree)
+        JsonUtil.canonicalJson(tree)
+    }
+
+  private def stripColumnMapping(node: JsonNode): Unit = node match {
+    case obj: ObjectNode =>
+      obj.get("metadata") match {
+        case m: ObjectNode =>
+          m.remove("delta.columnMapping.physicalName")
+          m.remove("delta.columnMapping.id")
+        case _ => ()
+      }
+      obj.elements().asScala.foreach(stripColumnMapping)
+    case arr: ArrayNode => arr.elements().asScala.foreach(stripColumnMapping)
+    case _ => ()
+  }
+
+  private def canonicalField(node: JsonNode, field: String): String =
+    if (node.has(field) && !node.get(field).isNull) JsonUtil.canonicalJson(node.get(field))
+    else "null"
 
   // ===========================================================================
   // Per-commit replay
