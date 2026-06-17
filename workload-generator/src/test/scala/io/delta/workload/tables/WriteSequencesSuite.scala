@@ -28,10 +28,7 @@ class WriteSequencesSuite extends WorkloadTestSuite("write_sequences") {
   test("insert_update_delete_chain") {
     val w = createTableOp("tbl", schema = "id INT, status STRING, n INT",
       properties = Map("delta.enableDeletionVectors" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "status" -> "new", "n" -> 0),
-      Map("id" -> 2, "status" -> "new", "n" -> 0),
-      Map("id" -> 3, "status" -> "new", "n" -> 0)))
+    insertOp(w, (1 to 3).map(i => Map("id" -> i, "status" -> "new", "n" -> 0)))
     updateOp(w, predicate = "id <= 2", set = Map("status" -> "'active'", "n" -> "n + 1"))
     deleteOp(w, predicate = "id = 3")
     insertOp(w, Seq(Map("id" -> 4, "status" -> "new", "n" -> 5)))

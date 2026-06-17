@@ -23,10 +23,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
 
   test("create_and_read") {
     val w = createTableOp("tbl", schema = "id INT, name STRING, score DOUBLE")
-    insertOp(w, Seq(
-      Map("id" -> 1, "name" -> "alice", "score" -> 95.5),
-      Map("id" -> 2, "name" -> "bob", "score" -> 87.3),
-      Map("id" -> 3, "name" -> "charlie", "score" -> 72.1)))
+    insertOp(w, Seq(("alice", 95.5), ("bob", 87.3), ("charlie", 72.1)).zipWithIndex.map {
+      case ((name, score), i) => Map("id" -> (i + 1), "name" -> name, "score" -> score) })
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
     readSpec(t, predicate = "score > 90.0", name = "read_high_score")
@@ -39,10 +37,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
       properties = Map(
         "delta.enableDeletionVectors" -> "true",
         "delta.enableChangeDataFeed" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "value" -> "alpha", "amount" -> 100),
-      Map("id" -> 2, "value" -> "beta", "amount" -> 200),
-      Map("id" -> 3, "value" -> "gamma", "amount" -> 300)))
+    insertOp(w, Seq("alpha", "beta", "gamma").zipWithIndex.map {
+      case (v, i) => Map("id" -> (i + 1), "value" -> v, "amount" -> (i + 1) * 100) })
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
     snapshotSpec(t)
@@ -80,11 +76,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     val w = createTableOp("tbl",
       schema = "id INT, status STRING, count INT",
       properties = Map("delta.enableDeletionVectors" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "status" -> "pending", "count" -> 0),
-      Map("id" -> 2, "status" -> "pending", "count" -> 0),
-      Map("id" -> 3, "status" -> "active", "count" -> 5),
-      Map("id" -> 4, "status" -> "pending", "count" -> 0)))
+    insertOp(w, Seq(("pending", 0), ("pending", 0), ("active", 5), ("pending", 0)).zipWithIndex.map {
+      case ((status, count), i) => Map("id" -> (i + 1), "status" -> status, "count" -> count) })
     updateOp(w, predicate = "status = 'pending'",
       set = Map("status" -> "'active'", "count" -> "count + 1"))
     val t = registerWriteSpec(w)
@@ -96,13 +89,10 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
 
   test("alter_add_column") {
     val w = createTableOp("tbl", schema = "id INT, name STRING")
-    insertOp(w, Seq(
-      Map("id" -> 1, "name" -> "alice"),
-      Map("id" -> 2, "name" -> "bob")))
+    insertOp(w, Seq("alice", "bob").zipWithIndex.map { case (n, i) => Map("id" -> (i + 1), "name" -> n) })
     addColumnsOp(w, "email STRING")
-    insertOp(w, Seq(
-      Map("id" -> 3, "name" -> "charlie", "email" -> "charlie@test.com"),
-      Map("id" -> 4, "name" -> "diana", "email" -> "diana@test.com")))
+    insertOp(w, Seq("charlie", "diana").zipWithIndex.map {
+      case (n, i) => Map("id" -> (i + 3), "name" -> n, "email" -> s"$n@test.com") })
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
     readSpec(t, version = 1, name = "read_before_alter")
@@ -129,11 +119,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     val w = createTableOp("tbl",
       schema = "id INT, data STRING",
       properties = Map("delta.enableDeletionVectors" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "data" -> "first"),
-      Map("id" -> 2, "data" -> "second"),
-      Map("id" -> 3, "data" -> "third"),
-      Map("id" -> 4, "data" -> "fourth")))
+    insertOp(w, Seq("first", "second", "third", "fourth").zipWithIndex.map {
+      case (d, i) => Map("id" -> (i + 1), "data" -> d) })
     deleteOp(w, predicate = "true")
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_after_delete_all")
@@ -145,13 +132,10 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     val w = createTableOp("tbl",
       schema = "id INT, region STRING, revenue INT",
       partitionColumns = Seq("region"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "region" -> "east", "revenue" -> 100),
-      Map("id" -> 2, "region" -> "east", "revenue" -> 150)))
-    insertOp(w, Seq(
-      Map("id" -> 3, "region" -> "west", "revenue" -> 200),
-      Map("id" -> 4, "region" -> "west", "revenue" -> 250),
-      Map("id" -> 5, "region" -> "west", "revenue" -> 300)))
+    insertOp(w, Seq(100, 150).zipWithIndex.map {
+      case (rev, i) => Map("id" -> (i + 1), "region" -> "east", "revenue" -> rev) })
+    insertOp(w, Seq(200, 250, 300).zipWithIndex.map {
+      case (rev, i) => Map("id" -> (i + 3), "region" -> "west", "revenue" -> rev) })
     insertOp(w, Seq(Map("id" -> 6, "region" -> "north", "revenue" -> 400)))
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
@@ -164,15 +148,12 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
 
   test("replace_table_as_select") {
     val w = createTableOp("tbl", schema = "id INT, name STRING")
-    insertOp(w, Seq(
-      Map("id" -> 1, "name" -> "alice"),
-      Map("id" -> 2, "name" -> "bob")))
+    insertOp(w, Seq("alice", "bob").zipWithIndex.map { case (n, i) => Map("id" -> (i + 1), "name" -> n) })
     // Replace-as-select: new schema + new data in a single commit.
     replaceTableOp(w,
       schema = "id INT, label STRING, score DOUBLE",
-      rows = Seq(
-        Map("id" -> 10, "label" -> "x", "score" -> 1.5),
-        Map("id" -> 20, "label" -> "y", "score" -> 2.5)))
+      rows = Seq(("x", 1.5), ("y", 2.5)).zipWithIndex.map {
+        case ((label, score), i) => Map("id" -> ((i + 1) * 10), "label" -> label, "score" -> score) })
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
     readSpec(t, version = 1, name = "read_before_replace")
@@ -199,10 +180,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     replaceTableOp(w,
       schema = "id INT, region STRING, revenue INT",
       partitionColumns = Seq("region"),
-      rows = Seq(
-        Map("id" -> 10, "region" -> "east", "revenue" -> 100),
-        Map("id" -> 20, "region" -> "west", "revenue" -> 200),
-        Map("id" -> 30, "region" -> "east", "revenue" -> 300)))
+      rows = Seq("east", "west", "east").zipWithIndex.map {
+        case (region, i) => Map("id" -> ((i + 1) * 10), "region" -> region, "revenue" -> ((i + 1) * 100)) })
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
     readSpec(t, predicate = "region = 'east'", name = "read_east")
@@ -250,13 +229,9 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     val w = createTableOp("tbl",
       schema = "id INT, name STRING, score INT",
       properties = Map("delta.enableDeletionVectors" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "name" -> "alice", "score" -> 90),
-      Map("id" -> 2, "name" -> "bob", "score" -> 75),
-      Map("id" -> 3, "name" -> "charlie", "score" -> 88),
-      Map("id" -> 4, "name" -> "diana", "score" -> 92),
-      Map("id" -> 5, "name" -> "eve", "score" -> 60),
-      Map("id" -> 6, "name" -> "frank", "score" -> 85)))
+    insertOp(w, Seq(("alice", 90), ("bob", 75), ("charlie", 88), ("diana", 92), ("eve", 60),
+      ("frank", 85)).zipWithIndex.map {
+      case ((name, score), i) => Map("id" -> (i + 1), "name" -> name, "score" -> score) })
     deleteOp(w, predicate = "score < 80")
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_after_delete")
