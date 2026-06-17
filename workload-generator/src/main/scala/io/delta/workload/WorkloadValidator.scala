@@ -17,8 +17,11 @@
 package io.delta.workload
 
 import java.nio.file.{Files, Path}
+import java.util.concurrent.Executors
 
 import scala.collection.mutable
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.Duration
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
@@ -50,14 +53,18 @@ object WorkloadValidator {
 
   def validateAll(spark: SparkSession, workloadRoot: Path): ValidationResult = {
     require(Files.isDirectory(workloadRoot), s"Not a directory: $workloadRoot")
-    val errors = mutable.ArrayBuffer[String]()
-    var passed = 0
-    for (testDir <- listChildren(workloadRoot).filter(Files.isDirectory(_))) {
-      val r = validateTestDir(spark, testDir)
-      passed += r.passed
-      errors ++= r.errors
-    }
-    ValidationResult(passed, errors.toSeq)
+    val testDirs = listChildren(workloadRoot).filter(Files.isDirectory(_))
+    // Each test dir validates independently (its own temp replay tables, path-based table refs),
+    // and SparkSession is thread-safe, so validate them concurrently and let Spark's scheduler
+    // interleave the per-dir jobs. (DeltaLog's global cache only thrashes under this; commits are
+    // per-table, so the result stays correct.)
+    val pool = Executors.newFixedThreadPool(
+      math.min(8, math.max(1, Runtime.getRuntime.availableProcessors)))
+    implicit val ec: ExecutionContext = ExecutionContext.fromExecutorService(pool)
+    val results =
+      try Await.result(Future.sequence(testDirs.map(d => Future(validateTestDir(spark, d)))), Duration.Inf)
+      finally pool.shutdown()
+    ValidationResult(results.map(_.passed).sum, results.flatMap(_.errors))
   }
 
   /**
