@@ -491,7 +491,7 @@ class WorkloadContext private[workload] (
     b.record(ReplaceTableCommit(
       schema = b.ddlToSchemaJson(schema),
       partitionColumns = opt(partitionColumns),
-      properties = opt(properties)), rowSeq)
+      properties = opt(properties)), Seq(rowSeq))
   }
 
   /**
@@ -513,7 +513,7 @@ class WorkloadContext private[workload] (
     } finally {
       FileUtils.deleteDirectory(parquet.getParent.toFile)
     }
-    getWriteBuilder(w.table).record(InsertCommit(), rowSeq)
+    getWriteBuilder(w.table).record(InsertCommit(), Seq(rowSeq))
   }
 
   /** Delete rows matching `predicate` and record the delete. */
@@ -595,8 +595,8 @@ class WorkloadContext private[workload] (
       tableProperties = tableProperties, txn = txn,
       addFiles = opt(addActions),
       removeFiles = removeFiles.map(_.map(k => RemoveFileAction(k))),
-      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata))
-    builder.recordLowLevelRows(idx, adds.map(_.rows))
+      addDomainMetadata = addDomainMetadata, removeDomainMetadata = removeDomainMetadata),
+      adds.map(_.rows))
     idx
   }
 

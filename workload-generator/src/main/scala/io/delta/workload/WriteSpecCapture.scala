@@ -36,36 +36,29 @@ import io.delta.workload.deltaharness.DeltaHarness
  */
 class WriteSpecBuilder {
 
-  private val commits = mutable.ArrayBuffer[WriteCommit]()
+  /**
+   * A recorded commit together with its capture-time logical rows. Rows are NOT part of the
+   * serialized [[WriteCommit]] (which carries only file paths); [[buildSpec]] materializes them to
+   * Parquet and writes the resulting paths back into the commit. `rows` holds one row-set per data
+   * file the commit adds: high-level insert / replace-as-select add a single file (one element);
+   * a low-level commit adds one row-set per `AddFile`. Data-free ops carry no rows.
+   */
+  private case class WriteOpWithData(commit: WriteCommit, rows: Seq[Seq[Map[String, Any]]])
 
-  // Rows for data-bearing high-level ops (insert / replace-as-select), keyed by commit index.
-  // The API takes rows; `buildSpec` materializes them to Parquet under `data/` and the spec
-  // serializes only the resulting file paths.
-  private val rowData = mutable.HashMap[Int, Seq[Map[String, Any]]]()
+  private val recorded = mutable.ArrayBuffer[WriteOpWithData]()
 
-  // Per-add rows for low-level commits, keyed by commit index (a low-level commit may add several
-  // files, each its own row-set). `buildSpec` materializes each to `data/commit_<idx>/add_<i>.parquet`.
-  private val lowLevelRows = mutable.HashMap[Int, Seq[Seq[Map[String, Any]]]]()
+  /** The ordinal (== table version) the next recorded commit will occupy. */
+  def nextOrdinal: Int = recorded.size
 
   /**
-   * Append a recorded commit and return its ordinal (== the table version it produces). For
-   * data-bearing high-level ops (insert / replace-as-select), pass the logical `rows` to
-   * materialize to Parquet in [[buildSpec]]. Low-level per-add rows go through
-   * [[recordLowLevelRows]] (a different `Seq[Seq[...]]` shape).
+   * Append a recorded commit and return its ordinal (== the table version it produces). Pass the
+   * commit's logical `rows` (one row-set per data file it adds) to materialize to Parquet in
+   * [[buildSpec]]; data-free ops pass nothing.
    */
-  /** The ordinal (== table version) the next recorded commit will occupy. */
-  def nextOrdinal: Int = commits.size
-
-  def record(commit: WriteCommit, rows: Seq[Map[String, Any]] = Nil): Int = {
-    val idx = commits.size
-    if (rows.nonEmpty) rowData(idx) = rows
-    commits += commit
-    idx
+  def record(commit: WriteCommit, rows: Seq[Seq[Map[String, Any]]] = Nil): Int = {
+    recorded += WriteOpWithData(commit, rows)
+    recorded.size - 1
   }
-
-  /** Store a low-level commit's per-add rows for materialization in [[buildSpec]]. */
-  def recordLowLevelRows(idx: Int, addRows: Seq[Seq[Map[String, Any]]]): Unit =
-    if (addRows.nonEmpty) lowLevelRows(idx) = addRows
 
   /** Parse `ADD COLUMNS` DDL into the spec's `addColumns` JSON (name/type/nullable per field). */
   private[workload] def addColumnsJson(ddl: String): Option[Any] =
@@ -98,31 +91,31 @@ class WriteSpecBuilder {
     // Commit index lines up with the table version it produced (commit 0 is the create at
     // version 0). Guard the coupling: each recorded op must map to exactly one version.
     val finalVersion = log.update().version
-    require(commits.size == finalVersion + 1,
-      s"write spec records ${commits.size} ops but table has ${finalVersion + 1} versions " +
+    require(recorded.size == finalVersion + 1,
+      s"write spec records ${recorded.size} ops but table has ${finalVersion + 1} versions " +
         "(0.." + finalVersion + "); op index can no longer be used as the table version")
 
     // Materialize the spec's data files. The API took `rows`; the spec stores Parquet. High-level
     // insert/replace-as-select rows are written to `data/commit_<idx>/part-00000.parquet` (full
     // schema incl. partition columns, so replay can Append/RTAS). Low-level commits copy each
     // add's already-written Parquet to `data/commit_<idx>/<path>` (same in-table path).
-    val enriched = commits.zipWithIndex.map {
-      case (ins: InsertCommit, idx) =>
-        ins.copy(dataFiles = materializeRows(spark, tablePath.toString, outputDir, idx))
-      case (rep: ReplaceTableCommit, idx) =>
-        rep.copy(dataFiles = materializeRows(spark, tablePath.toString, outputDir, idx))
-      case (ll: LowLevelCommitOp, idx) =>
+    val enriched = recorded.zipWithIndex.map {
+      case (WriteOpWithData(ins: InsertCommit, rows), idx) =>
+        ins.copy(dataFiles = materializeRows(spark, tablePath.toString, outputDir, idx, rows))
+      case (WriteOpWithData(rep: ReplaceTableCommit, rows), idx) =>
+        rep.copy(dataFiles = materializeRows(spark, tablePath.toString, outputDir, idx, rows))
+      case (WriteOpWithData(ll: LowLevelCommitOp, rows), idx) =>
         // Materialize each low-level add's logical rows to the `dataFile` path recorded in the
         // action (full schema incl. partition columns, so replay's writeFiles can partition/map).
-        lowLevelRows.get(idx).foreach { addRows =>
+        if (rows.nonEmpty) {
           val schema = DeltaHarness.get.schemaAt(spark, tablePath.toString, Some(idx.toLong),
             includePartition = true)
-          ll.addFiles.getOrElse(Seq.empty).zip(addRows).foreach { case (af, rows) =>
-            DeltaHarness.get.writeRows(spark, schema, rows, outputDir.resolve(af.dataFile))
+          ll.addFiles.getOrElse(Seq.empty).zip(rows).foreach { case (af, r) =>
+            DeltaHarness.get.writeRows(spark, schema, r, outputDir.resolve(af.dataFile))
           }
         }
         ll
-      case (other, _) => other
+      case (WriteOpWithData(other, _), _) => other
     }
 
     // `write` is just another spec: it lives in `specs/<name>_write.json` alongside read/snapshot
@@ -139,11 +132,12 @@ class WriteSpecBuilder {
    * recorded no rows.
    */
   private def materializeRows(
-      spark: SparkSession, tablePath: String, outputDir: Path, idx: Int): Option[Seq[String]] = {
-    rowData.get(idx).filter(_.nonEmpty).map { rows =>
+      spark: SparkSession, tablePath: String, outputDir: Path, idx: Int,
+      rows: Seq[Seq[Map[String, Any]]]): Option[Seq[String]] = {
+    rows.headOption.filter(_.nonEmpty).map { r =>
       val schema = DeltaHarness.get.schemaAt(spark, tablePath, Some(idx.toLong), includePartition = true)
       val rel = SpecLayout.commitDataFile(idx, "part-00000.parquet")
-      DeltaHarness.get.writeRows(spark, schema, rows, outputDir.resolve(rel))
+      DeltaHarness.get.writeRows(spark, schema, r, outputDir.resolve(rel))
       Seq(rel)
     }
   }
