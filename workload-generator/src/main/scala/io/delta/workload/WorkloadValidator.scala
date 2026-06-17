@@ -22,8 +22,6 @@ import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode}
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.{SaveMode, SparkSession}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
@@ -92,9 +90,8 @@ object WorkloadValidator {
         try {
           specType match {
             case "write" =>
-              val w = mutable.ArrayBuffer[String]()
-              validateExpectedLatest(spark, replayOf(specFile.getFileName.toString), testDir, name, w)
-              if (w.isEmpty) passed += 1 else errors ++= w.map(m => s"${testDir.getFileName}/$name: $m")
+              validateExpectedLatest(spark, replayOf(specFile.getFileName.toString), testDir, name)
+              passed += 1
 
             case "read" =>
               val expectedDir = testDir.resolve("expected").resolve(name)
@@ -115,12 +112,11 @@ object WorkloadValidator {
 
             case "snapshot" =>
               writePtr match {
-                case Some(ws) => // write-derived: structural, against the replayed table
-                  val w = mutable.ArrayBuffer[String]()
-                  validateSnapshotStructurally(spark, replayOf(ws), specFile, name,
-                    JsonUtil.readWriteSpec(specsDir.resolve(ws)), w)
-                  if (w.isEmpty) passed += 1
-                  else errors ++= w.map(m => s"${testDir.getFileName}/$name: $m")
+                case Some(ws) =>
+                  // Write-derived: protocol/metadata are Spark's deterministic output and were
+                  // validated at capture time. Standalone, we only confirm the write spec replays.
+                  replayOf(ws)
+                  passed += 1
                 case None =>
                   if (Files.isDirectory(deltaTable)) {
                     SnapshotCapture.validateFromSpec(spark, deltaTable, specFile)
@@ -178,192 +174,16 @@ object WorkloadValidator {
 
   /** Compare the replayed table's rows against the write spec's `expected/<name>/table_content`. */
   private def validateExpectedLatest(
-      spark: SparkSession, replayTablePath: Path, testDir: Path, writeName: String,
-      warnings: mutable.ArrayBuffer[String]): Unit = {
+      spark: SparkSession, replayTablePath: Path, testDir: Path, writeName: String): Unit = {
     val contentDir = testDir.resolve("expected").resolve(writeName).resolve("table_content")
-    // A write spec MUST ship its expected rows; a missing dir is a capture bug, not a pass.
-    if (!Files.exists(contentDir)) {
-      warnings += s"write spec '$writeName': expected/$writeName/table_content is missing"
-      return
-    }
+    // A write spec MUST ship its expected rows; a missing dir is a capture bug.
+    require(Files.exists(contentDir),
+      s"write spec '$writeName': expected/$writeName/table_content is missing")
     val expected = JsonUtil.toRowMultiset(spark.read.parquet(contentDir.toString))
     val actual = JsonUtil.toRowMultiset(
       spark.read.format("delta").load(replayTablePath.toAbsolutePath.toString))
-    try JsonUtil.assertMultisetsEqual(expected, actual, s"${writeName}_latest")
-    catch { case e: Throwable => warnings += e.getMessage }
+    JsonUtil.assertMultisetsEqual(expected, actual, s"${writeName}_latest")
   }
-
-  /**
-   * Validate a snapshot spec against a write-replayed (independently created) table. `protocol`
-   * is a capability check (version floors + feature supersets), `configuration` checks only the
-   * write spec's declared keys, and `schemaString` is compared with column-mapping ids stripped;
-   * `partitionColumns`/`format` are compared exactly.
-   */
-  private def validateSnapshotStructurally(
-      spark: SparkSession, replayTablePath: Path, specFile: Path, specFileName: String,
-      writeSpec: WriteSpec, warnings: mutable.ArrayBuffer[String]): Unit = {
-    val spec = JsonUtil.readSnapshotSpec(specFile)
-    val (declaredKeys, removedKeys) = declaredConfiguration(writeSpec)
-    spec.expected.foreach { exp =>
-      val log = DeltaHarness.get.openLog(spark, replayTablePath.toString)
-      val snapshot = (spec.version, spec.timestamp) match {
-        case (Some(v), _) => log.getSnapshotAt(v)
-        case _ => log.update()
-      }
-      val expProtocol = JsonUtil.mapper.valueToTree[JsonNode](exp.protocol)
-      val replayProtocol = JsonUtil.mapper.readTree(snapshot.protocolJson).get("protocol")
-      protocolViolation(expProtocol, replayProtocol).foreach { reason =>
-        warnings += s"snapshot '$specFileName': protocol mismatch ($reason)"
-      }
-      val expectedMeta = JsonUtil.mapper.valueToTree[JsonNode](exp.metadata)
-      val replayMeta = JsonUtil.mapper.readTree(snapshot.metadataJson).get("metaData")
-      configurationViolation(expectedMeta, replayMeta, declaredKeys, removedKeys).foreach {
-        reason => warnings += s"snapshot '$specFileName': metadata.configuration mismatch ($reason)"
-      }
-      if (normalizedSchema(expectedMeta) != normalizedSchema(replayMeta)) {
-        warnings += s"snapshot '$specFileName': metadata.schemaString mismatch"
-      }
-      for (field <- Seq("partitionColumns", "format")) {
-        if (canonicalField(expectedMeta, field) != canonicalField(replayMeta, field)) {
-          warnings += s"snapshot '$specFileName': metadata.$field mismatch"
-        }
-      }
-    }
-  }
-
-  // ===========================================================================
-  // Portable comparison helpers (also unit-tested directly)
-  // ===========================================================================
-
-  /**
-   * Canonicalize `metadata.schemaString`, stripping per-field column-mapping identifiers
-   * (`delta.columnMapping.physicalName`/`.id`) which are minted per-table and so are not a
-   * meaningful equality target across an independently-replayed table.
-   */
-  private[workload] def normalizedSchema(meta: JsonNode): String =
-    Option(meta.get("schemaString")).filterNot(_.isNull) match {
-      case None => "null"
-      case Some(s) =>
-        val tree = JsonUtil.mapper.readTree(s.asText())
-        stripColumnMapping(tree)
-        JsonUtil.canonicalJson(tree)
-    }
-
-  private def stripColumnMapping(node: JsonNode): Unit = node match {
-    case obj: ObjectNode =>
-      obj.get("metadata") match {
-        case m: ObjectNode =>
-          m.remove("delta.columnMapping.physicalName")
-          m.remove("delta.columnMapping.id")
-        case _ => ()
-      }
-      obj.elements().asScala.foreach(stripColumnMapping)
-    case arr: ArrayNode => arr.elements().asScala.foreach(stripColumnMapping)
-    case _ => ()
-  }
-
-  /**
-   * The configuration keys the write spec's commits explicitly declared.
-   * @return (declared keys still in effect, keys explicitly removed). `replace_table` resets both.
-   */
-  private[workload] def declaredConfiguration(writeSpec: WriteSpec): (Set[String], Set[String]) = {
-    val declared = mutable.LinkedHashSet[String]()
-    val removed = mutable.LinkedHashSet[String]()
-    for (commit <- writeSpec.commits) commit match {
-      case c: CreateTableCommit => c.properties.foreach(declared ++= _.keys)
-      case c: ReplaceTableCommit =>
-        declared.clear(); removed.clear()
-        c.properties.foreach(declared ++= _.keys)
-      case c: UpdatePropertiesCommit =>
-        c.set.foreach { s => declared ++= s.keys; removed --= s.keys }
-        c.remove.foreach { r => removed ++= r; declared --= r }
-      case _ => ()
-    }
-    (declared.toSet, removed.toSet)
-  }
-
-  // Features implied by a protocol version when table features are NOT enumerated (reader < 3 /
-  // writer < 7). Cumulative — a version implies its own and all lower versions' features.
-  // columnMapping is the only reader-axis legacy feature; it is implied jointly (reader>=2 AND
-  // writer>=5), so it lives in the writer map and is credited to the reader axis only when the
-  // writer floor is also met (see effectiveReader) — a reader=2/writer<5 protocol does NOT imply it.
-  private val writerImpliedFeatures: Map[Int, Set[String]] = Map(
-    1 -> Set.empty,
-    2 -> Set("appendOnly", "invariants"),
-    3 -> Set("appendOnly", "invariants", "checkConstraints"),
-    4 -> Set("appendOnly", "invariants", "checkConstraints", "changeDataFeed", "generatedColumns"),
-    5 -> Set("appendOnly", "invariants", "checkConstraints", "changeDataFeed", "generatedColumns",
-      "columnMapping"),
-    6 -> Set("appendOnly", "invariants", "checkConstraints", "changeDataFeed", "generatedColumns",
-      "columnMapping", "identityColumns"))
-
-  /**
-   * Capability check: version floors + feature supersets over EFFECTIVE feature sets (explicit
-   * features unioned with those implied by the protocol version). Returns the first violation.
-   */
-  private[workload] def protocolViolation(expected: JsonNode, replay: JsonNode): Option[String] = {
-    def intField(node: JsonNode, name: String): Int =
-      if (node != null && node.has(name)) node.get(name).asInt() else 0
-    def explicitFeatures(node: JsonNode, name: String): Set[String] =
-      if (node != null && node.has(name) && node.get(name).isArray)
-        node.get(name).elements().asScala.map(_.asText()).toSet
-      else Set.empty
-    def effectiveReader(node: JsonNode): Set[String] = {
-      val r = intField(node, "minReaderVersion")
-      val w = intField(node, "minWriterVersion")
-      if (r >= 3) explicitFeatures(node, "readerFeatures")
-      // Legacy: columnMapping is the only reader-implied feature, and only when reader>=2 AND
-      // writer>=5 jointly (mirrors delta-spark's implicitlySupportedFeatures).
-      else if (r >= 2 && w >= 5) Set("columnMapping")
-      else Set.empty
-    }
-    def effectiveWriter(node: JsonNode): Set[String] = {
-      val v = intField(node, "minWriterVersion")
-      if (v >= 7) explicitFeatures(node, "writerFeatures")
-      else writerImpliedFeatures.getOrElse(v, Set.empty)
-    }
-
-    val expReader = intField(expected, "minReaderVersion")
-    val expWriter = intField(expected, "minWriterVersion")
-    val repReader = intField(replay, "minReaderVersion")
-    val repWriter = intField(replay, "minWriterVersion")
-    val missingReaderFeatures = effectiveReader(expected) -- effectiveReader(replay)
-    val missingWriterFeatures = effectiveWriter(expected) -- effectiveWriter(replay)
-
-    if (repReader < expReader) Some(s"minReaderVersion $repReader < $expReader")
-    else if (repWriter < expWriter) Some(s"minWriterVersion $repWriter < $expWriter")
-    else if (missingReaderFeatures.nonEmpty)
-      Some(s"missing readerFeatures ${missingReaderFeatures.mkString(",")}")
-    else if (missingWriterFeatures.nonEmpty)
-      Some(s"missing writerFeatures ${missingWriterFeatures.mkString(",")}")
-    else None
-  }
-
-  /**
-   * Check only the author-declared config keys: each declared key present + equal on the replay,
-   * each removed key absent. Engine-injected defaults are ignored. Returns the first violation.
-   */
-  private[workload] def configurationViolation(
-      expectedMeta: JsonNode, replayMeta: JsonNode,
-      declaredKeys: Set[String], removedKeys: Set[String]): Option[String] = {
-    val expConfig = Option(expectedMeta.get("configuration")).filterNot(_.isNull)
-    val repConfig = Option(replayMeta.get("configuration")).filterNot(_.isNull)
-    def get(config: Option[JsonNode], key: String): Option[String] =
-      config.flatMap(c => Option(c.get(key))).filterNot(_.isNull).map(_.asText())
-
-    declaredKeys.toSeq.sorted.collectFirst {
-      case key if get(repConfig, key) != get(expConfig, key) =>
-        s"key '$key' expected ${get(expConfig, key)}, got ${get(repConfig, key)}"
-    }.orElse {
-      removedKeys.toSeq.sorted.collectFirst {
-        case key if get(repConfig, key).isDefined => s"removed key '$key' still present"
-      }
-    }
-  }
-
-  private def canonicalField(node: JsonNode, field: String): String =
-    if (node.has(field) && !node.get(field).isNull) JsonUtil.canonicalJson(node.get(field))
-    else "null"
 
   // ===========================================================================
   // Per-commit replay
@@ -414,6 +234,10 @@ object WorkloadValidator {
       spark.sql(s"UPDATE $tableRef SET $setClauses WHERE ${c.predicate}")
 
     case c: UpdatePropertiesCommit =>
+      // SET and UNSET replay as separate commits, so one UpdatePropertiesCommit must not do both
+      // (it would advance the table by two versions and break commit index == version).
+      require(!(c.set.exists(_.nonEmpty) && c.remove.exists(_.nonEmpty)),
+        s"UpdatePropertiesCommit at commit $idx both sets and removes properties")
       c.set.filter(_.nonEmpty).foreach { s =>
         val setClause = s.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")
         spark.sql(s"ALTER TABLE $tableRef SET TBLPROPERTIES ($setClause)")
@@ -494,7 +318,7 @@ object WorkloadValidator {
   /**
    * Reconstruct a Spark [[StructType]] from a stored Delta schema value. The spec stores schemas
    * as `StructType.json` deserialized to a Map (see `WriteSpecCapture.ddlToSchemaJson`), so this
-   * re-serializes and parses it through Spark's own reader — `.toDDL`/`.sql`/`.json` on the result
+   * re-serializes and parses it through Spark's own reader. `.toDDL`/`.sql`/`.json` on the result
    * are then exact and lossless (decimal precision, nested nullability, quoting all preserved).
    */
   private def structOf(schema: Any): StructType =

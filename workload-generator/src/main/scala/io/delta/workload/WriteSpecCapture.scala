@@ -90,6 +90,10 @@ class WriteSpecBuilder {
     recordUpdateProperties(Map.empty, props)
 
   def recordUpdateProperties(set: Map[String, String], unset: Seq[String]): Unit = {
+    // SQL replays SET and UNSET TBLPROPERTIES as separate ALTER statements, so a single commit
+    // cannot do both without producing two table versions and breaking commit index == version.
+    require(!(set.nonEmpty && unset.nonEmpty),
+      "an UpdatePropertiesCommit sets or removes properties, not both in one commit")
     commits += UpdatePropertiesCommit(
       set = if (set.nonEmpty) Some(set) else None,
       remove = if (unset.nonEmpty) Some(unset) else None)
