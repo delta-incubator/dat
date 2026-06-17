@@ -50,13 +50,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
 
   test("insert_multiple") {
     val w = createTableOp("tbl", schema = "id INT, category STRING")
-    insertOp(w, Seq(
-      Map("id" -> 1, "category" -> "a"),
-      Map("id" -> 2, "category" -> "a")))
-    insertOp(w, Seq(
-      Map("id" -> 3, "category" -> "b"),
-      Map("id" -> 4, "category" -> "b"),
-      Map("id" -> 5, "category" -> "b")))
+    insertOp(w, (1 to 2).map(i => Map("id" -> i, "category" -> "a")))
+    insertOp(w, (3 to 5).map(i => Map("id" -> i, "category" -> "b")))
     insertOp(w, Seq(Map("id" -> 6, "category" -> "c")))
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_all")
@@ -71,12 +66,8 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
     val w = createTableOp("tbl",
       schema = "id INT, value STRING, amount INT",
       properties = Map("delta.enableDeletionVectors" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 1, "value" -> "keep", "amount" -> 10),
-      Map("id" -> 2, "value" -> "remove", "amount" -> 20),
-      Map("id" -> 3, "value" -> "keep", "amount" -> 30),
-      Map("id" -> 4, "value" -> "remove", "amount" -> 40),
-      Map("id" -> 5, "value" -> "keep", "amount" -> 50)))
+    insertOp(w, (1 to 5).map(i =>
+      Map("id" -> i, "value" -> (if (i % 2 == 0) "remove" else "keep"), "amount" -> i * 10)))
     deleteOp(w, predicate = "value = 'remove'")
     val t = registerWriteSpec(w)
     readSpec(t, name = "read_after_delete")
@@ -122,14 +113,9 @@ class WriteBasicSuite extends WorkloadTestSuite("write_basic") {
 
   test("alter_set_properties") {
     val w = createTableOp("tbl", schema = "id INT, value INT")
-    insertOp(w, Seq(
-      Map("id" -> 1, "value" -> 100),
-      Map("id" -> 2, "value" -> 200),
-      Map("id" -> 3, "value" -> 300)))
+    insertOp(w, (1 to 3).map(i => Map("id" -> i, "value" -> i * 100)))
     setPropertiesOp(w, Map("delta.enableChangeDataFeed" -> "true"))
-    insertOp(w, Seq(
-      Map("id" -> 4, "value" -> 400),
-      Map("id" -> 5, "value" -> 500)))
+    insertOp(w, (4 to 5).map(i => Map("id" -> i, "value" -> i * 100)))
     updateOp(w, predicate = "id <= 2", set = Map("value" -> "value + 1000"))
     val t = registerWriteSpec(w)
     readSpec(t, version = 1, name = "read_initial_insert")

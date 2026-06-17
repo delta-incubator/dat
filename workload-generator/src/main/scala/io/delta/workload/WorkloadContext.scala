@@ -18,7 +18,7 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path, Paths}
 
-import scala.collection.mutable
+import scala.collection.{IterableOnce, mutable}
 
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
@@ -276,13 +276,14 @@ class WorkloadContext private[workload] (
       schema: String,
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty,
-      rows: Seq[Map[String, Any]] = Seq.empty): Unit = {
+      rows: IterableOnce[Map[String, Any]] = Seq.empty): Unit = {
+    val rowSeq = rows.iterator.toSeq
     val partitionClause = partitionedByClause(partitionColumns)
     val propsClause = tblPropertiesClause(properties)
-    if (rows.nonEmpty) {
+    if (rowSeq.nonEmpty) {
       // Single-commit replace-as-select: write the rows to a temp Parquet and RTAS from it, so
       // the resulting schema matches what the bundled spec Parquet will reproduce on replay.
-      val parquet = RowParquet.writeTemp(spark, StructType.fromDDL(schema), rows)
+      val parquet = RowParquet.writeTemp(spark, StructType.fromDDL(schema), rowSeq)
       try {
         sql(s"CREATE OR REPLACE TABLE ${w.table.tableName} USING delta$partitionClause" +
           s"$propsClause AS SELECT * FROM parquet.`${parquet.toAbsolutePath}`")
@@ -293,7 +294,7 @@ class WorkloadContext private[workload] (
       sql(s"CREATE OR REPLACE TABLE ${w.table.tableName} ($schema) USING delta" +
         s"$partitionClause$propsClause")
     }
-    getWriteBuilder(w.table).recordReplaceTable(schema, properties, partitionColumns, rows)
+    getWriteBuilder(w.table).recordReplaceTable(schema, properties, partitionColumns, rowSeq)
   }
 
   /**
@@ -301,20 +302,21 @@ class WorkloadContext private[workload] (
    * it produces no commit, so recording it would both desync the commit-index/version mapping
    * and let the validator pass a spec with nothing to validate.
    */
-  def insertOp(w: WriteHandle, rows: Seq[Map[String, Any]]): Unit = {
-    require(rows.nonEmpty, "insertOp requires at least one row")
+  def insertOp(w: WriteHandle, rows: IterableOnce[Map[String, Any]]): Unit = {
+    val rowSeq = rows.iterator.toSeq
+    require(rowSeq.nonEmpty, "insertOp requires at least one row")
     // Drive the live insert from the SAME materialized Parquet the spec will bundle (via
     // RowParquet), so the captured table and the replayed table use one value encoder and
     // cannot diverge by type. The spec's own copy is re-materialized in buildSpec.
     val schema = RowParquet.schemaAt(spark, w.table.sourcePath.toString,
       version = None, includePartition = true)
-    val parquet = RowParquet.writeTemp(spark, schema, rows)
+    val parquet = RowParquet.writeTemp(spark, schema, rowSeq)
     try {
       sql(s"INSERT INTO ${w.table.tableName} SELECT * FROM parquet.`${parquet.toAbsolutePath}`")
     } finally {
       FileUtils.deleteDirectory(parquet.getParent.toFile)
     }
-    getWriteBuilder(w.table).recordInsert(rows)
+    getWriteBuilder(w.table).recordInsert(rowSeq)
   }
 
   /** Delete rows matching `predicate` and record the delete. */

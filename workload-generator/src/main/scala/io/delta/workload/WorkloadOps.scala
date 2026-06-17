@@ -18,6 +18,8 @@ package io.delta.workload
 
 import java.nio.file.Path
 
+import scala.collection.IterableOnce
+
 import org.apache.spark.sql.SparkSession
 
 import io.delta.workload.log.Action
@@ -92,11 +94,12 @@ trait WorkloadOps {
       schema: String,
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty,
-      rows: Seq[Map[String, Any]] = Seq.empty): Unit =
+      rows: IterableOnce[Map[String, Any]] = Seq.empty): Unit =
     current.replaceTableOp(w, schema, properties, partitionColumns, rows)
 
   /** Insert rows and record the insert. */
-  def insertOp(w: WriteHandle, rows: Seq[Map[String, Any]]): Unit = current.insertOp(w, rows)
+  def insertOp(w: WriteHandle, rows: IterableOnce[Map[String, Any]]): Unit =
+    current.insertOp(w, rows)
 
   /** Delete rows matching `predicate` and record the delete. */
   def deleteOp(w: WriteHandle, predicate: String): Unit = current.deleteOp(w, predicate)
