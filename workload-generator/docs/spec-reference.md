@@ -354,11 +354,9 @@ These are the raw Delta protocol and metadata JSON structures — not simplified
 
 **Type:** `"write"`
 
-Tests Delta writer implementations by providing a sequence of write operations to replay. Unlike read specs (which verify reading an existing table), a write spec describes *how to construct* a table from scratch.
+Tests Delta *writer* implementations: a portable, engine-agnostic recipe of `commits` to replay into a fresh table, after which the result is compared against `expected/<name>_write/`.
 
-A write spec is a portable, implementation-agnostic recipe: it specifies what operations to perform (create table, insert, delete, update, etc.) declaratively, so any conforming Delta writer can interpret and execute it. After replaying all commits, the resulting table is compared against the expected data under `expected/<name>_write/`.
-
-A write spec is **just another spec**: it lives at `specs/<name>_write.json` alongside the read and snapshot specs of the same workload, and is dispatched by its `type` field like any other. The read/snapshot specs of a write workload carry a `writeSpec` pointer back to it (see below), marking them *write-derived*.
+It is **just another spec** — it lives at `specs/<name>_write.json` and dispatches by `type`. The read/snapshot specs of the same workload carry a `writeSpec` pointer back to it, marking them *write-derived* (replayed from the write spec, then validated against it).
 
 ### Fields
 
@@ -377,13 +375,13 @@ These map to SQL-like operations. The writer translates them to appropriate Delt
 
 | Operation | Fields | Description |
 |-----------|--------|-------------|
-| `create_table` | `schema`, `partitionColumns?`, `properties?` | Create a new table with the given schema |
+| `create_table` | `schema`, `partitionColumns?`, `properties?` | Create a new table with the given schema (`schema` is a Delta-JSON struct) |
 | `replace_table` | `schema`, `partitionColumns?`, `properties?`, `dataFiles?` | Replace the table's schema/partitioning/properties (and all data). With `dataFiles` it is a replace-as-select: a single commit that also writes the bundled data. |
 | `insert` | `dataFiles?` | Append the rows in the bundled Parquet data files |
-| `update` | `predicate`, `set` | Update rows matching predicate |
-| `delete` | `predicate` | Delete rows matching predicate |
-| `evolve_schema` | `addColumns?`, `renameColumns?`, `dropColumns?` | Modify table schema |
-| `update_properties` | `set?`, `remove?` | Modify table properties |
+| `update` | `predicate`, `set` | Update rows matching `predicate`; `set` maps column → SQL expression |
+| `delete` | `predicate` | Delete rows matching `predicate` (SQL WHERE clause) |
+| `evolve_schema` | `addColumns?`, `renameColumns?`, `dropColumns?` | Modify table schema. `addColumns` entries are `{name, type, nullable}`; `renameColumns` maps old → new |
+| `update_properties` | `set?`, `remove?` | Modify table properties (`set` map, `remove` names) |
 
 The data for `insert` and `replace_table` is bundled as Parquet under `data/commit_N/` (the
 generator's authoring API accepts in-memory rows, but the spec always stores Parquet). A
@@ -399,63 +397,18 @@ enabled (a Delta/Spark constraint).
 |-----------|--------|-------------|
 | `commit` | `schema?`, `tableProperties?`, `txn?`, `addFiles?`, `removeFiles?`, `addDomainMetadata?`, `removeDomainMetadata?` | Bundle raw Delta actions in one commit. Each `addFiles[]` entry's logical rows are bundled as Parquet (`dataFile`); a consumer writes them **through its own engine write path** (so column mapping, partitioning, and stats are handled — physical names/stats are not in the spec) and commits the resulting `AddFile`s alongside the `txn`/`DomainMetadata`/schema/property changes. `removeFiles[]` tombstone a file added by a prior low-level `commit`, referenced by that commit's ordinal (`addedAtCommit`); since the engine assigns paths per table, the consumer resolves the ordinal to its own table's path. Deletion vectors are out of scope. |
 
-### WriteCommit Fields
+### Low-level value types
 
-`WriteCommit` is a sealed set of per-operation types discriminated by the leading `operation`
-property (each operation carries only the fields listed for it in the tables above). The glossary
-below describes each field; a field appears only on the operations that list it. Referenced value
-types (`AppTxn`, `AddDomainMetadata`, `AddFileAction`, `RemoveFileAction`) are defined below.
+Value types referenced by the low-level `commit` operation. An `AddFileAction` carries a pointer to a Parquet of **logical** rows (full rows incl. partition columns); the consumer writes it through its own engine write path, so physical names, partitioning, and stats are derived per table, not stored.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `operation` | `string` | Operation type discriminator (see above) |
-| `schema` | `object` | Table schema in Delta JSON format |
-| `partitionColumns` | `string[]` | Partition column names |
-| `properties` | `map` | Table properties (e.g., `delta.enableDeletionVectors`) |
-| `dataFiles` | `string[]` | Relative paths under `data/` to the Parquet holding this op's rows (full rows incl. partition columns). For `insert` and `replace_table` |
-| `predicate` | `string` | SQL WHERE clause for update/delete |
-| `set` | `map` | Column assignments for update (column → expression) or properties to set |
-| `remove` | `string[]` | Property names to remove |
-| `addColumns` | `object[]` | Columns to add (each with `name`, `type`, `nullable`) |
-| `renameColumns` | `map` | Column renames (old name → new name) |
-| `dropColumns` | `string[]` | Column names to drop |
-| `tableProperties` | `map` | Properties for low-level commit |
-| `txn` | `AppTxn` | Application transaction for idempotent writes |
-| `addFiles` | `AddFileAction[]` | Files to add (low-level) |
-| `removeFiles` | `RemoveFileAction[]` | Files to remove (low-level) |
-| `addDomainMetadata` | `AddDomainMetadata[]` | Domain metadata to add |
-| `removeDomainMetadata` | `string[]` | Domain names to remove |
-
-### AddFileAction (Low-Level)
-
-Carries a pointer to a Parquet of LOGICAL rows; the consumer writes it through its own engine
-write path (physical names, partitioning, and stats are derived per table, not stored).
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `dataFile` | `string` | Relative path under `data/commit_N/` to the Parquet of logical rows (full rows incl. partition columns) |
-| `dataChange` | `boolean?` | Whether this is a data change (default true) |
-
-### RemoveFileAction (Low-Level)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `addedAtCommit` | `int` | Ordinal (== table version) of the prior low-level `commit` that added the file(s) to tombstone; the consumer resolves it to its own table's path(s) |
-| `dataChange` | `boolean?` | Whether this is a data change (default true) |
-
-### AppTxn (Low-Level)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `appId` | `string` | Application id for idempotent writes (`txn` action) |
-| `version` | `long` | Monotonic transaction version for `appId` |
-
-### AddDomainMetadata (Low-Level)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `domain` | `string` | Domain name |
-| `configuration` | `string` | Domain configuration payload |
+| Type | Field | Description |
+|------|-------|-------------|
+| `AddFileAction` | `dataFile` | Relative path under `data/commit_N/` to the Parquet of logical rows |
+| `AddFileAction` | `dataChange?` | Whether this is a data change (default true) |
+| `RemoveFileAction` | `addedAtCommit` | Ordinal (== table version) of the prior low-level `commit` that added the file(s) to tombstone; consumer resolves it to its own table's path(s) |
+| `RemoveFileAction` | `dataChange?` | Whether this is a data change (default true) |
+| `AppTxn` | `appId`, `version` | Application id and its monotonic transaction version for idempotent writes (`txn` action) |
+| `AddDomainMetadata` | `domain`, `configuration` | Domain name and its configuration payload |
 
 ### Expected Data
 
@@ -466,13 +419,12 @@ The final table state after replaying all commits is captured under `expected/<n
 
 ### Comparison Semantics
 
-The capture comes from one writer, but a write spec must validate against any conforming Delta writer, so a consumer compares the replayed snapshot against `expected` by capability rather than byte equality:
+The capture comes from one writer, so a consumer compares the replayed table against `expected` *portably*, not byte-for-byte:
 
-- **`protocol`** — feature-superset plus version-floor, not exact, over the EFFECTIVE feature sets (explicit `readerFeatures`/`writerFeatures` unioned with the features implied by the protocol version). The replay must satisfy `minReaderVersion >= expected` and `minWriterVersion >= expected` and be a feature superset. A higher version or extra features is allowed.
-- **`configuration`** — only the keys the write spec's own commits declared are checked: `create_table`/`replace_table` `properties` plus `update_properties.set`, minus `update_properties.remove` (a `replace_table` resets the declared set). Each declared key must be present and equal; each removed key must be absent. Engine-injected defaults are ignored.
-- **rows** (`table_content/`) — multiset comparison; order is irrelevant, but each row must appear the correct number of times.
-
-`schemaString` should be compared with per-field column-mapping `physicalName`/`id` normalized out (those are minted per table); `partitionColumns` and `format` compared exactly.
+- **rows** (`table_content/`) — multiset equality (order-independent).
+- **protocol** — the replay must support at least the expected reader/writer versions and features (a stronger protocol is acceptable).
+- **configuration** — only the keys the spec's own commits declared: `create_table`/`replace_table` `properties` + `update_properties.set` minus `.remove` (`replace_table` resets the set); each present and equal, removed keys absent. Engine-injected defaults are ignored.
+- **schemaString** — equal with per-field column-mapping `physicalName`/`id` normalized out (minted per table); `partitionColumns` and `format` equal.
 
 ### Directory Structure
 
@@ -498,7 +450,7 @@ The capture comes from one writer, but a write spec must validate against any co
 
 ### Examples
 
-**Create table and insert:**
+**High-level sequence (create, insert, delete, update):**
 
 ```json
 {
@@ -510,44 +462,17 @@ The capture comes from one writer, but a write spec must validate against any co
         "type": "struct",
         "fields": [
           { "name": "id", "type": "integer", "nullable": false, "metadata": {} },
-          { "name": "name", "type": "string", "nullable": true, "metadata": {} }
+          { "name": "status", "type": "string", "nullable": true, "metadata": {} }
         ]
       },
       "properties": { "delta.enableDeletionVectors": "true" }
     },
-    {
-      "operation": "insert",
-      "dataFiles": ["data/commit_1/part-0000-abc.parquet"]
-    }
-  ]
-}
-```
-
-**Delete with predicate:**
-
-```json
-{
-  "type": "write",
-  "commits": [
-    { "operation": "create_table", "schema": { } },
     { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
-    { "operation": "delete", "predicate": "id > 100" }
-  ]
-}
-```
-
-**Update with SET:**
-
-```json
-{
-  "type": "write",
-  "commits": [
-    { "operation": "create_table", "schema": { } },
-    { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
+    { "operation": "delete", "predicate": "id > 100" },
     {
       "operation": "update",
       "predicate": "status = 'pending'",
-      "set": { "status": "'active'", "count": "count + 1" }
+      "set": { "status": "'active'" }
     }
   ]
 }
@@ -578,35 +503,6 @@ The capture comes from one writer, but a write spec must validate against any co
 }
 ```
 
-**Partitioned table:**
-
-```json
-{
-  "type": "write",
-  "commits": [
-    {
-      "operation": "create_table",
-      "schema": {
-        "type": "struct",
-        "fields": [
-          { "name": "id", "type": "integer", "nullable": true, "metadata": {} },
-          { "name": "region", "type": "string", "nullable": true, "metadata": {} },
-          { "name": "revenue", "type": "integer", "nullable": true, "metadata": {} }
-        ]
-      },
-      "partitionColumns": ["region"]
-    },
-    {
-      "operation": "insert",
-      "dataFiles": ["data/commit_1/part-00000.parquet"]
-    }
-  ]
-}
-```
-
-The bundled Parquet contains the full rows including the partition columns, so a consumer
-appends it and lets its own writer lay out the partition directories.
-
 **Replace-as-select (replace schema + data in one commit):**
 
 ```json
@@ -630,7 +526,7 @@ appends it and lets its own writer lay out the partition directories.
 }
 ```
 
-**Low-level commit with domain metadata:**
+**Low-level commit (addFiles/removeFiles + txn + domainMetadata):**
 
 ```json
 {
@@ -641,28 +537,15 @@ appends it and lets its own writer lay out the partition directories.
       "schema": { },
       "properties": { "delta.feature.domainMetadata": "supported" }
     },
-    {
-      "operation": "commit",
-      "addFiles": [ { "dataFile": "data/commit_1/add_0.parquet" } ],
-      "addDomainMetadata": [
-        { "domain": "myApp.config", "configuration": "{\"version\": 1}" }
-      ]
-    }
-  ]
-}
-```
-
-**Low-level commit with application transaction:**
-
-```json
-{
-  "type": "write",
-  "commits": [
-    { "operation": "create_table", "schema": { } },
+    { "operation": "commit", "addFiles": [ { "dataFile": "data/commit_1/add_0.parquet" } ] },
     {
       "operation": "commit",
       "txn": { "appId": "streaming-job-1", "version": 42 },
-      "addFiles": [ { "dataFile": "data/commit_1/add_0.parquet" } ]
+      "addFiles": [ { "dataFile": "data/commit_2/add_0.parquet" } ],
+      "removeFiles": [ { "addedAtCommit": 1 } ],
+      "addDomainMetadata": [
+        { "domain": "myApp.config", "configuration": "{\"version\": 1}" }
+      ]
     }
   ]
 }
