@@ -160,20 +160,27 @@ object ReadCapture {
       require(actualCode.isDefined,
         s"Error validation FAILED for $specName: expected operation to fail but it succeeded")
     } else if (spec.expected.isDefined) {
+      val exp = spec.expected.get
       val rereadDf = JsonUtil.applyFilters(
         JsonUtil.buildDeltaReader(spark, tablePath, spec.version, spec.timestamp),
         spec.predicate, spec.columns)
 
-      // A spec with `expected` MUST have captured expected_data. A missing directory means
-      // the corpus is incomplete (or one engine produced data and another did not), so fail
-      // loudly rather than silently skipping the row check.
       val expectedDataPath = expectedDir.resolve("expected_data")
-      require(Files.exists(expectedDataPath),
-        s"Validation FAILED for $specName: expected_data is missing")
-      JsonUtil.assertMultisetsEqual(
-        JsonUtil.toRowMultiset(spark.read.parquet(expectedDataPath.toString)),
-        JsonUtil.toRowMultiset(rereadDf),
-        specName)
+      if (Files.exists(expectedDataPath)) {
+        JsonUtil.assertMultisetsEqual(
+          JsonUtil.toRowMultiset(spark.read.parquet(expectedDataPath.toString)),
+          JsonUtil.toRowMultiset(rereadDf),
+          specName)
+      } else {
+        // expected_data is only skipped at capture when the row count exceeds the
+        // materialization limit (see writeExpectedData), so verify the row count for those
+        // specs. A missing dir at or under the limit means the corpus is incomplete: fail.
+        require(exp.rowCount > MaxExpectedDataRows,
+          s"Validation FAILED for $specName: expected_data is missing")
+        val actual = rereadDf.count()
+        require(actual == exp.rowCount,
+          s"Validation FAILED for $specName: row count $actual != expected ${exp.rowCount}")
+      }
 
       val expectedMetaPath = expectedDir.resolve("expected_metadata")
       if (checkMetadata && Files.exists(expectedMetaPath)) {
