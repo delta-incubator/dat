@@ -19,7 +19,7 @@ package io.delta.workload.tables
 import io.delta.workload.WorkloadTestSuite
 
 /**
- * Type-coverage write workloads: exercises `RowParquet.coerce` and the schema round-trip across
+ * Type-coverage write workloads: exercises the harness's row-value coercion and the schema round-trip across
  * every supported scalar type, nulls, and string edge cases. Each test captures then the
  * framework replays + re-validates, so a passing test proves the type survives capture->replay.
  */
@@ -108,7 +108,7 @@ class WriteTypesSuite extends WorkloadTestSuite("write_types") {
 
   test("nested_type_data_is_unsupported") {
     // Nested column TYPES round-trip in the schema, but nested DATA via the rows API is not
-    // supported — `RowParquet.coerce` fails loud rather than silently writing a wrong value.
+    // supported — the harness's row-value coercion fails loud rather than silently writing a wrong value.
     val w = createTableOp("tbl", schema = "id INT, s STRUCT<a: INT>")
     val ex = intercept[IllegalArgumentException] {
       insertOp(w, Seq(Map("id" -> 1, "s" -> Map("a" -> 1))))

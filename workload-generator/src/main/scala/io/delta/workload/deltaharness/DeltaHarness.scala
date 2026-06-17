@@ -16,7 +16,10 @@
 
 package io.delta.workload.deltaharness
 
+import java.nio.file.Path
+
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.types.StructType
 
 import io.delta.workload.{AddDomainMetadata, AppTxn}
 
@@ -86,6 +89,29 @@ trait DeltaHarness {
   def commitWithData(
       spark: SparkSession, tablePath: String,
       addDataParquet: Seq[String], req: CommitRequest): Seq[String]
+
+  /**
+   * The table's schema at `version` (latest if None). When `includePartition` is false the
+   * partition columns are dropped, matching the layout of a raw data file referenced by a
+   * low-level `AddFile` (partition values ride on the action, not the file).
+   */
+  def schemaAt(
+      spark: SparkSession, tablePath: String,
+      version: Option[Long], includePartition: Boolean): StructType
+
+  /**
+   * Materialize in-memory `rows` (the workload-generator's authoring surface) into a single Parquet
+   * file at `dest`, coercing each value to the corresponding column type in `schema`. Capture writes
+   * rows here at generation time — no Delta-log scan — and replay reads the produced files back.
+   */
+  def writeRows(
+      spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]], dest: Path): Unit
+
+  /**
+   * Like [[writeRows]], but writes to a single Parquet file in a fresh temp directory and returns
+   * the produced file path.
+   */
+  def writeRowsToTemp(spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]]): Path
 }
 
 trait LogView {

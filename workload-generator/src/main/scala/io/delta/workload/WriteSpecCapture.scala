@@ -181,10 +181,10 @@ class WriteSpecBuilder {
         // Materialize each low-level add's logical rows to the `dataFile` path recorded in the
         // action (full schema incl. partition columns, so replay's writeFiles can partition/map).
         lowLevelRows.get(idx).foreach { addRows =>
-          val schema = RowParquet.schemaAt(spark, tablePath.toString, Some(idx.toLong),
+          val schema = DeltaHarness.get.schemaAt(spark, tablePath.toString, Some(idx.toLong),
             includePartition = true)
           ll.addFiles.getOrElse(Seq.empty).zip(addRows).foreach { case (af, rows) =>
-            RowParquet.writeSingle(spark, schema, rows, outputDir.resolve(af.dataFile))
+            DeltaHarness.get.writeRows(spark, schema, rows, outputDir.resolve(af.dataFile))
           }
         }
         ll
@@ -207,9 +207,9 @@ class WriteSpecBuilder {
   private def materializeRows(
       spark: SparkSession, tablePath: String, outputDir: Path, idx: Int): Option[Seq[String]] = {
     rowData.get(idx).filter(_.nonEmpty).map { rows =>
-      val schema = RowParquet.schemaAt(spark, tablePath, Some(idx.toLong), includePartition = true)
+      val schema = DeltaHarness.get.schemaAt(spark, tablePath, Some(idx.toLong), includePartition = true)
       val rel = SpecLayout.commitDataFile(idx, "part-00000.parquet")
-      RowParquet.writeSingle(spark, schema, rows, outputDir.resolve(rel))
+      DeltaHarness.get.writeRows(spark, schema, rows, outputDir.resolve(rel))
       Seq(rel)
     }
   }
