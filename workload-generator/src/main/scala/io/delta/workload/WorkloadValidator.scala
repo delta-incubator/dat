@@ -40,8 +40,8 @@ case class ValidationResult(passed: Int, errors: Seq[String]) {
  * The single validator for every spec type. Walks a generated workload tree (or one test dir)
  * and validates each captured spec under `specs/`, dispatching on the `type` field:
  *
- *   - `write`    — replay its `commits` into a fresh table, compare to `expected/<name>/`.
- *   - `read` / `snapshot` — if the spec carries a `writeSpec` pointer it is *write-derived*:
+ *   - `write`: replay its `commits` into a fresh table, compare to `expected/<name>/`.
+ *   - `read` / `snapshot`: if the spec carries a `writeSpec` pointer it is *write-derived*:
  *     reconstruct the table by replaying that sibling write spec, then validate **portably**
  *     (rows-only reads, capability-protocol, column-mapping-normalized schema, declared-config
  *     only). Otherwise it is *read-only*: validate against the captured `delta/` table exactly.
@@ -294,7 +294,7 @@ object WorkloadValidator {
   /**
    * Replay a low-level commit: write each add's bundled logical Parquet through the engine
    * (`commitWithData` → column-mapping/partition/stats handled), and tombstone each remove's
-   * referenced prior add — resolved to this replay table's own paths at that commit/version.
+   * referenced prior add, resolved to this replay table's own paths at that commit/version.
    */
   private def replayLowLevelCommit(
       spark: SparkSession, commit: LowLevelCommitOp, idx: Int,

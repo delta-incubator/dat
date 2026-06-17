@@ -69,15 +69,15 @@ object WorkloadGenerator {
 
     // Copy Delta table. Skip:
     //  - transient files that async engine hooks may be mid-cleaning (e.g.
-    //    some engines write `.crc.<uuid>.tmp` files and delete them shortly after —
+    //    some engines write `.crc.<uuid>.tmp` files and delete them shortly after;
     //    they can disappear between listing and copying)
-    //  - Hadoop CRC sidecars (dot-prefixed `.NAME.crc`) — these would go
+    //  - Hadoop CRC sidecars (dot-prefixed `.NAME.crc`): these would go
     //    stale on any subsequent `mutateTable` / `modifyCommitActions` and
     //    cause `ChecksumFileSystem` to reject the (intentionally) corrupted
     //    file. Workloads use `RawLocalFileSystem` for reads anyway, so the
     //    sidecars carry no information for our consumers.
     // NOTE: Delta version-checksums (`_delta_log/NNN.crc`, no dot prefix) are
-    // NOT excluded — those are protocol-level artifacts.
+    // NOT excluded; those are protocol-level artifacts.
     val destTablePath = testOutputDir.resolve("delta")
     val copyFilter: java.io.FileFilter = (f: java.io.File) => {
       val n = f.getName
@@ -170,7 +170,7 @@ private[workload] trait HasAssertion[T] {
 }
 
 // ---------------------------------------------------------------------------
-// Internal data structures — the model the DSL builds and the engine consumes
+// Internal data structures: the model the DSL builds and the engine consumes
 // ---------------------------------------------------------------------------
 
 private[workload] class TableSpec(

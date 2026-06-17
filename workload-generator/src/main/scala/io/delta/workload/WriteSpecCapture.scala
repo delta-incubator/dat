@@ -216,8 +216,8 @@ class WriteSpecBuilder {
 
   /**
    * Capture the expected final table state under the write spec's `expected/<name>_write/`:
-   *  - `table_content/` — Parquet of the latest snapshot's rows
-   *  - `table_version_metadata.json` — protocol + metadata of the latest snapshot
+   *  - `table_content/`: Parquet of the latest snapshot's rows
+   *  - `table_version_metadata.json`: protocol + metadata of the latest snapshot
    */
   private def writeExpectedLatest(
       spark: SparkSession,

@@ -752,7 +752,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
   test("framework: zero-table test warns") {
     val results = run("t_fw3") { _ =>
       sql("CREATE TABLE tbl (id INT) USING delta")
-      // Never call registerTable() — should warn
+      // Never call registerTable(); should warn
     }
     assert(results.size == 1)
     assert(results.head.passed) // passes but with warning

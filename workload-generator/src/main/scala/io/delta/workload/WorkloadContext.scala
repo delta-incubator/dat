@@ -74,7 +74,7 @@ class TableHandle private[workload] (
    *   - Non-ICT tables:     the commit JSON file's mtime.
    *
    * DESCRIBE HISTORY and `commitInfo.timestamp` both look right at a glance
-   * but diverge by a few milliseconds from the file mtime on some engines — feeding
+   * but diverge by a few milliseconds from the file mtime on some engines. Feeding
    * those back as `timestampAsOf` raises DELTA_TIMESTAMP_GREATER_THAN_COMMIT
    * / DELTA_TIMESTAMP_EARLIER_THAN_COMMIT_RETENTION.
    */
@@ -170,7 +170,7 @@ class WorkloadContext private[workload] (
    *     doesn't match.
    *   - non-null + empty string `""`: any error is accepted; capture fails
    *     only if the operation succeeds.
-   *   - null (default): preserve legacy auto-detect behavior — record
+   *   - null (default): preserve legacy auto-detect behavior, recording
    *     whatever Spark does (success or error).
    */
   def readSpec(
@@ -261,7 +261,7 @@ class WorkloadContext private[workload] (
   /**
    * Replace an existing table's schema/partitioning/properties and all data via
    * `CREATE OR REPLACE TABLE`, and record the replace_table operation. `schema` is a SQL DDL
-   * string. With non-empty `rows` it is a replace-as-select (RTAS) — a single commit that also
+   * string. With non-empty `rows` it is a replace-as-select (RTAS): a single commit that also
    * writes the rows. Operates on the table behind `w`; subsequent ops see the new schema.
    */
   def replaceTableOp(
