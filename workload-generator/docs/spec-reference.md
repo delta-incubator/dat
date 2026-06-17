@@ -401,9 +401,14 @@ enabled (a Delta/Spark constraint).
 
 ### WriteCommit Fields
 
+`WriteCommit` is a sealed set of per-operation types discriminated by the leading `operation`
+property (each operation carries only the fields listed for it in the tables above). The glossary
+below describes each field; a field appears only on the operations that list it. Referenced value
+types (`AppTxn`, `AddDomainMetadata`, `AddFileAction`, `RemoveFileAction`) are defined below.
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `operation` | `string` | Operation type (see above) |
+| `operation` | `string` | Operation type discriminator (see above) |
 | `schema` | `object` | Table schema in Delta JSON format |
 | `partitionColumns` | `string[]` | Partition column names |
 | `properties` | `map` | Table properties (e.g., `delta.enableDeletionVectors`) |
@@ -437,6 +442,20 @@ write path (physical names, partitioning, and stats are derived per table, not s
 |-------|------|-------------|
 | `addedAtCommit` | `int` | Ordinal (== table version) of the prior low-level `commit` that added the file(s) to tombstone; the consumer resolves it to its own table's path(s) |
 | `dataChange` | `boolean?` | Whether this is a data change (default true) |
+
+### AppTxn (Low-Level)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `appId` | `string` | Application id for idempotent writes (`txn` action) |
+| `version` | `long` | Monotonic transaction version for `appId` |
+
+### AddDomainMetadata (Low-Level)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `domain` | `string` | Domain name |
+| `configuration` | `string` | Domain configuration payload |
 
 ### Expected Data
 
