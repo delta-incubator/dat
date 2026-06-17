@@ -16,7 +16,8 @@
 
 package io.delta.workload.tables
 
-import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.{JsonUtil, WorkloadTestSuite}
+import io.delta.workload.log.AddFile
 
 /**
  * Data skipping, statistics, and partitioning workloads.
@@ -880,8 +881,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Strip stats from commit
     modifyCommitActions(t, version = 1) { actions =>
-      actions.map { case ("add", node) =>
-        node.remove("stats"); ("add", node)
+      actions.map {
+        case a: AddFile => a.copy(stats = None)
         case other => other
       }
     }
@@ -1190,19 +1191,13 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Strip min/max stats, keep only numRecords
     modifyCommitActions(t, 0) { actions =>
-      actions.map { case ("add", node) =>
-        if (node.has("stats")) {
-          val stats = node.get("stats").asText()
-          if (stats.contains("numRecords")) {
-            import com.fasterxml.jackson.databind.ObjectMapper
-            val mapper = new ObjectMapper()
-            val statsNode = mapper.readTree(stats)
-            val newStats = mapper.createObjectNode()
-            newStats.set("numRecords", statsNode.get("numRecords"))
-            node.put("stats", mapper.writeValueAsString(newStats))
-          }
-        }
-        ("add", node)
+      actions.map {
+        case a: AddFile if a.stats.exists(_.contains("numRecords")) =>
+          val statsNode = JsonUtil.mapper.readTree(a.stats.get)
+          val newStats = JsonUtil.mapper.createObjectNode()
+          newStats.set[com.fasterxml.jackson.databind.JsonNode](
+            "numRecords", statsNode.get("numRecords"))
+          a.copy(stats = Some(JsonUtil.mapper.writeValueAsString(newStats)))
         case other => other
       }
     }
@@ -1253,9 +1248,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Strip stats completely to simulate empty stats string
     modifyCommitActions(t, 0) { actions =>
-      actions.map { case ("add", node) =>
-        if (node.has("stats")) node.put("stats", "")
-        ("add", node)
+      actions.map {
+        case a: AddFile if a.stats.isDefined => a.copy(stats = Some(""))
         case other => other
       }
     }
@@ -1269,8 +1263,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Remove stats field entirely
     modifyCommitActions(t, 0) { actions =>
-      actions.map { case ("add", node) =>
-        node.remove("stats"); ("add", node)
+      actions.map {
+        case a: AddFile => a.copy(stats = None)
         case other => other
       }
     }

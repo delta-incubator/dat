@@ -24,6 +24,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions.{col, to_json}
 
 import io.delta.workload.deltaharness.DeltaHarness
+import io.delta.workload.log.{CommitLog, RemoveFile}
 
 object TableInfoWriter {
 
@@ -66,11 +67,12 @@ object TableInfoWriter {
 
       val numCommits = commitFiles.size
 
-      // Count actions and remove actions in a single pass over each commit.
+      // Count actions and remove actions in a single pass over each commit, via the typed log.
       val (numActions, numRemoveFiles) = commitFiles.foldLeft((0L, 0L)) {
         case ((actions, removes), f) =>
-          val lines = Files.readAllLines(f).asScala
-          (actions + lines.size, removes + lines.count(_.startsWith("""{"remove""")))
+          val version = f.getFileName.toString.stripSuffix(".json").toLong
+          val as = CommitLog.read(tablePath, version)
+          (actions + as.size, removes + as.count(_.isInstanceOf[RemoveFile]))
       }
 
       val lastCrcVersion = listLog(_.map(_.getFileName.toString)

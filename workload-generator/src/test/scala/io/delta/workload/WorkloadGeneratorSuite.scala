@@ -25,6 +25,8 @@ import org.apache.spark.sql.SparkSession
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
+import io.delta.workload.log.{AddFile, Metadata}
+
 class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with WorkloadOps {
 
   private var _spark: SparkSession = _
@@ -609,8 +611,8 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       sql("INSERT INTO tbl VALUES (1),(2)")
       val t = registerTable("tbl")
       modifyCommitActions(t, version = 1) { actions =>
-        actions.map { case ("add", node) =>
-          node.put("stats", """{"numRecords":999}"""); ("add", node)
+        actions.map {
+          case a: AddFile => a.copy(stats = Some("""{"numRecords":999}"""))
           case other => other
         }
       }
@@ -639,7 +641,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       sql("INSERT INTO tbl VALUES (1),(2)")
       val t = registerTable("tbl")
       modifyCommitActions(t, version = 1) { actions =>
-        actions.filter(_._1 != "add")
+        actions.filterNot(_.isInstanceOf[AddFile])
       }
       snapshotSpec(t)
     }
@@ -660,11 +662,8 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       val t = registerTable("tbl")
       // Modify the metaData action in the CREATE commit (v0)
       modifyCommitActions(t, version = 0) { actions =>
-        actions.map { case ("metaData", node) =>
-          val configNode = node.get("configuration").asInstanceOf[
-            com.fasterxml.jackson.databind.node.ObjectNode]
-          configNode.put("test.property", "hello")
-          ("metaData", node)
+        actions.map {
+          case m: Metadata => m.copy(configuration = m.configuration + ("test.property" -> "hello"))
           case other => other
         }
       }

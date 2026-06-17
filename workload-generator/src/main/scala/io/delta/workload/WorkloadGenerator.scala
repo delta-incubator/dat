@@ -21,11 +21,11 @@ import java.nio.file.{Files, Path, Paths}
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
-import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.StructType
 import io.delta.workload.deltaharness.{CommitRemoveFile, CommitRequest, DeltaHarness}
+import io.delta.workload.log.{Action, CommitLog}
 
 /**
  * Internal workload generation engine. Use [[WorkloadTestSuite]] as the public API:
@@ -605,33 +605,16 @@ class WorkloadContext private[workload] (
   }
 
   /**
-   * Modify actions in a specific commit version.
-   * The modifier receives the full list of `(actionType, innerNode)` pairs
-   * (e.g. `("add", <the add ObjectNode>)`) and returns the (possibly reordered,
-   * filtered, or modified) list to write back.
+   * Modify the typed [[Action]]s of a specific commit version: filter, reorder, or `.copy` fields.
+   * Unknown/malformed lines surface as [[io.delta.workload.log.RawAction]] and pass through
+   * unchanged. For byte-level corruption (truncation, garbage), use [[mutateTable]] directly.
    */
   def modifyCommitActions(table: TableHandle, version: Long)(
-      modifier: Seq[(String, ObjectNode)] => Seq[(String, ObjectNode)]): Unit = {
+      modifier: Seq[Action] => Seq[Action]): Unit =
     mutateTable(table) { tableDir =>
-      val commitFile = tableDir.resolve("_delta_log").resolve(f"$version%020d.json")
-      if (Files.exists(commitFile)) {
-        val lines = new String(Files.readAllBytes(commitFile), "UTF-8").split("\n")
-          .filter(_.trim.nonEmpty)
-        val actions = lines.map { line =>
-          val node = JsonUtil.mapper.readTree(line)
-          val actionType = node.fieldNames().next()
-          (actionType, node.get(actionType).asInstanceOf[ObjectNode])
-        }.toSeq
-        val result = modifier(actions)
-        val newLines = result.map { case (actionType, innerNode) =>
-          val wrapper = JsonUtil.mapper.createObjectNode()
-          wrapper.set(actionType, innerNode)
-          JsonUtil.mapper.writeValueAsString(wrapper)
-        }
-        Files.write(commitFile, newLines.mkString("\n").getBytes("UTF-8"))
-      }
+      if (Files.exists(CommitLog.commitFile(tableDir, version)))
+        CommitLog.mutate(tableDir, version)(modifier)
     }
-  }
 
   // ---- Auto-naming ----
 
@@ -891,9 +874,9 @@ trait WorkloadOps {
   def mutateTable(table: TableHandle)(mutation: Path => Unit): Unit =
     current.mutateTable(table)(mutation)
 
-  /** Modify actions in a specific commit version. */
+  /** Modify the typed actions of a specific commit version. */
   def modifyCommitActions(table: TableHandle, version: Long)(
-      modifier: Seq[(String, ObjectNode)] => Seq[(String, ObjectNode)]): Unit =
+      modifier: Seq[Action] => Seq[Action]): Unit =
     current.modifyCommitActions(table, version)(modifier)
 }
 
