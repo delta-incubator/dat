@@ -254,42 +254,36 @@ object WorkloadValidator {
         spark.sql(s"ALTER TABLE $tableRef UNSET TBLPROPERTIES (${r.map(k => s"'$k'").mkString(", ")})")
       }
 
-    case c: EvolveSchemaCommit => replayEvolveSchema(spark, c, tablePath)
+    case c: EvolveSchemaCommit => replayEvolveSchema(spark, c, tableRef)
 
     case c: LowLevelCommitOp => replayLowLevelCommit(spark, c, idx, tablePath, testDir)
   }
 
-  /** Replay schema add/rename/drop via a single metadata-update commit. */
+  /**
+   * Replay a schema add/rename/drop via `ALTER TABLE` (mirroring the capture-side ops), so the
+   * engine enforces column-mapping requirements — e.g. it rejects a rename/drop on a non-CM table
+   * that would reinterpret physical columns by the new logical name. Each `EvolveSchemaCommit`
+   * carries exactly one of add/rename/drop, so this emits exactly one commit.
+   */
   private def replayEvolveSchema(
-      spark: SparkSession, commit: EvolveSchemaCommit, tablePath: String): Unit = {
-    val log = DeltaHarness.get.openLog(spark, tablePath)
-    val metaNode = Option(JsonUtil.mapper.readTree(log.update().metadataJson).get("metaData"))
-      .getOrElse(throw new IllegalStateException(
-        s"evolve_schema replay: no metaData action in current snapshot of $tablePath"))
-    val schemaString = Option(metaNode.get("schemaString"))
-      .getOrElse(throw new IllegalStateException(
-        s"evolve_schema replay: metaData has no schemaString in $tablePath"))
-    val currentSchema = DataType.fromJson(schemaString.asText()).asInstanceOf[StructType]
-    var fields = currentSchema.fields.toBuffer
-
+      spark: SparkSession, commit: EvolveSchemaCommit, tableRef: String): Unit = {
     commit.addColumns.foreach { cols =>
-      cols.asInstanceOf[Seq[Map[String, Any]]].foreach { col =>
-        val name = col("name").toString
-        val nullable = col.get("nullable").forall(_.asInstanceOf[Boolean])
-        fields += StructField(
-          name, DataType.fromJson(JsonUtil.mapper.writeValueAsString(col("type"))), nullable)
-      }
+      val st = StructType(cols.asInstanceOf[Seq[Map[String, Any]]].map { col =>
+        StructField(
+          col("name").toString,
+          DataType.fromJson(JsonUtil.mapper.writeValueAsString(col("type"))),
+          col.get("nullable").forall(_.asInstanceOf[Boolean]))
+      })
+      spark.sql(s"ALTER TABLE $tableRef ADD COLUMNS (${st.toDDL})")
     }
     commit.renameColumns.foreach { renames =>
-      for ((oldName, newName) <- renames) {
-        val i = fields.indexWhere(_.name == oldName)
-        if (i >= 0) fields(i) = fields(i).copy(name = newName)
-      }
+      for ((oldName, newName) <- renames)
+        spark.sql(s"ALTER TABLE $tableRef RENAME COLUMN $oldName TO $newName")
     }
-    commit.dropColumns.foreach { drops => fields = fields.filterNot(f => drops.contains(f.name)) }
-
-    DeltaHarness.get.commit(spark, tablePath,
-      CommitRequest(schemaJson = Some(StructType(fields.toSeq).json)))
+    commit.dropColumns.foreach { drops =>
+      if (drops.size == 1) spark.sql(s"ALTER TABLE $tableRef DROP COLUMN ${drops.head}")
+      else spark.sql(s"ALTER TABLE $tableRef DROP COLUMNS (${drops.mkString(", ")})")
+    }
   }
 
   /**
