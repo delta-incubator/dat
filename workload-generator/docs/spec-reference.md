@@ -453,7 +453,7 @@ The capture comes from one writer, but a write spec must validate against any co
 - **`configuration`** — only the keys the write spec's own commits declared are checked: `create_table`/`replace_table` `properties` plus `update_properties.set`, minus `update_properties.remove` (a `replace_table` resets the declared set). Each declared key must be present and equal; each removed key must be absent. Engine-injected defaults are ignored.
 - **rows** (`table_content/`) — multiset comparison; order is irrelevant, but each row must appear the correct number of times.
 
-`schemaString` (with per-field column-mapping `physicalName`/`id` normalized out, since those are minted per table), `partitionColumns`, and `format` are compared.
+`schemaString` should be compared with per-field column-mapping `physicalName`/`id` normalized out (those are minted per table); `partitionColumns` and `format` compared exactly.
 
 ### Directory Structure
 

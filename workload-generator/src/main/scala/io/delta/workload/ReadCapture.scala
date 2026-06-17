@@ -44,7 +44,7 @@ object ReadCapture {
 
     val harness = DeltaHarness.get
 
-    val (expected, expectedError, addFilesJson) = try {
+    val (expected, expectedError) = try {
       val log = harness.openLog(spark, tablePath.toString)
       val snapshot = JsonUtil.resolveSnapshot(spark, log, tablePath.toString, version, timestamp)
 
@@ -65,13 +65,13 @@ object ReadCapture {
       try {
         writeExpectedData(expectedDir, df, count, specName)
         writeExpectedMetadata(spark, expectedDir, addFilesJson)
-        (Some(ReadExpected(count, addFilesJson.length, totalFileCount - addFilesJson.length)), None, addFilesJson)
+        (Some(ReadExpected(count, addFilesJson.length, totalFileCount - addFilesJson.length)), None)
       } finally {
         df.unpersist()
       }
     } catch {
       case e: Throwable =>
-        (None, Some(SpecError(JsonUtil.extractErrorCode(e), Option(e.getMessage).getOrElse(""))), Seq.empty[String])
+        (None, Some(SpecError(JsonUtil.extractErrorCode(e), Option(e.getMessage).getOrElse(""))))
     }
 
     // If the test author declared `expectError`, the operation MUST throw.

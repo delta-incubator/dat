@@ -219,6 +219,16 @@ class WorkloadContext private[workload] (
 
   // ---- Write specs ----
 
+  /** ` PARTITIONED BY (a, b)` clause, or empty when there are no partition columns. */
+  private def partitionedByClause(partitionColumns: Seq[String]): String =
+    if (partitionColumns.nonEmpty) s" PARTITIONED BY (${partitionColumns.mkString(", ")})" else ""
+
+  /** ` TBLPROPERTIES ('k' = 'v', ...)` clause, or empty when there are no properties. */
+  private def tblPropertiesClause(properties: Map[String, String]): String =
+    if (properties.nonEmpty) {
+      s" TBLPROPERTIES (${properties.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")})"
+    } else ""
+
   private val _writeBuilders = mutable.HashMap[String, WriteSpecBuilder]()
 
   private def getWriteBuilder(table: TableHandle): WriteSpecBuilder = {
@@ -247,11 +257,8 @@ class WorkloadContext private[workload] (
       schema: String,
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty): WriteHandle = {
-    val partitionClause =
-      if (partitionColumns.nonEmpty) s" PARTITIONED BY (${partitionColumns.mkString(", ")})" else ""
-    val propsClause = if (properties.nonEmpty) {
-      s" TBLPROPERTIES (${properties.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")})"
-    } else ""
+    val partitionClause = partitionedByClause(partitionColumns)
+    val propsClause = tblPropertiesClause(properties)
     sql(s"CREATE TABLE $tableName ($schema) USING delta$partitionClause$propsClause")
     val t = registerTable(tableName)
     getWriteBuilder(t).recordCreateTable(schema, properties, partitionColumns)
@@ -270,11 +277,8 @@ class WorkloadContext private[workload] (
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty,
       rows: Seq[Map[String, Any]] = Seq.empty): Unit = {
-    val partitionClause =
-      if (partitionColumns.nonEmpty) s" PARTITIONED BY (${partitionColumns.mkString(", ")})" else ""
-    val propsClause = if (properties.nonEmpty) {
-      s" TBLPROPERTIES (${properties.map { case (k, v) => s"'$k' = '$v'" }.mkString(", ")})"
-    } else ""
+    val partitionClause = partitionedByClause(partitionColumns)
+    val propsClause = tblPropertiesClause(properties)
     if (rows.nonEmpty) {
       // Single-commit replace-as-select: write the rows to a temp Parquet and RTAS from it, so
       // the resulting schema matches what the bundled spec Parquet will reproduce on replay.

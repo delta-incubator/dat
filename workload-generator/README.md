@@ -81,8 +81,10 @@ WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite
 | Component | Purpose |
 |-----------|---------|
 | `WorkloadTestSuite` | ScalaTest base class with workload generation integration |
-| `WorkloadOps` | DSL trait: `sql()`, `registerTable()`, `readSpec()`, `snapshotSpec()` |
-| `WorkloadGenerator` | Orchestrates table copy, spec capture, and validation |
+| `WorkloadOps` | DSL trait (pass-through over `WorkloadContext`): `sql()`, `registerTable()`, `readSpec()`, write ops |
+| `WorkloadContext` | DSL state: tracks created tables, declared specs, and write builders |
+| `WorkloadGenerator` | Orchestrates table copy, spec capture, and self-validation |
+| `WorkloadValidator` | Replays/validates a generated workload tree; presubmit acceptance entry point |
 | `ReadCapture` | Captures read specs with expected row data |
 | `SnapshotCapture` | Captures snapshot specs with protocol/metadata |
 | `TableInfoWriter` | Writes table metadata (schema, protocol, stats) |

@@ -40,11 +40,12 @@ case class ValidationResult(passed: Int, errors: Seq[String]) {
  * The single validator for every spec type. Walks a generated workload tree (or one test dir)
  * and validates each captured spec under `specs/`, dispatching on the `type` field:
  *
- *   - `write`: replay its `commits` into a fresh table, compare to `expected/<name>/`.
+ *   - `write`: replay its `commits` into a fresh table, compare rows to `expected/<name>/`.
  *   - `read` / `snapshot`: if the spec carries a `writeSpec` pointer it is *write-derived*:
- *     reconstruct the table by replaying that sibling write spec, then validate **portably**
- *     (rows-only reads, capability-protocol, column-mapping-normalized schema, declared-config
- *     only). Otherwise it is *read-only*: validate against the captured `delta/` table exactly.
+ *     reconstruct the table by replaying that sibling write spec, then validate a read spec by
+ *     rows only; a write-derived snapshot only confirms the write spec replays (its
+ *     protocol/metadata were validated against the real table at capture time). Otherwise it is
+ *     *read-only*: validate against the captured `delta/` table exactly.
  *
  * Used both as the presubmit acceptance entry point ([[validateAll]]) and by the generator to
  * self-check a freshly generated test dir ([[validateTestDir]]).
@@ -94,6 +95,18 @@ object WorkloadValidator {
         val node = JsonUtil.mapper.readTree(Files.readAllBytes(specFile))
         val specType = Option(node.get("type")).map(_.asText()).getOrElse("")
         val writePtr = Option(node.get("writeSpec")).filterNot(_.isNull).map(_.asText())
+
+        // Read-only specs validate against the captured `delta/` table; if it is absent the corpus
+        // is incomplete. Run `validate` against it (counting a pass), else record the missing table.
+        def validateReadOnly(validate: => Unit): Unit =
+          if (Files.isDirectory(deltaTable)) {
+            validate
+            passed += 1
+          } else {
+            errors += s"${testDir.getFileName}/$name: read-only spec but no captured " +
+              s"table at $deltaTable"
+          }
+
         try {
           specType match {
             case "write" =>
@@ -108,13 +121,7 @@ object WorkloadValidator {
                     checkMetadata = false)
                   passed += 1
                 case None => // read-only: exact, against the captured table
-                  if (Files.isDirectory(deltaTable)) {
-                    ReadCapture.validateFromSpec(spark, deltaTable, expectedDir, specFile)
-                    passed += 1
-                  } else {
-                    errors += s"${testDir.getFileName}/$name: read-only spec but no captured " +
-                      s"table at $deltaTable"
-                  }
+                  validateReadOnly(ReadCapture.validateFromSpec(spark, deltaTable, expectedDir, specFile))
               }
 
             case "snapshot" =>
@@ -125,13 +132,7 @@ object WorkloadValidator {
                   replayOf(ws)
                   passed += 1
                 case None =>
-                  if (Files.isDirectory(deltaTable)) {
-                    SnapshotCapture.validateFromSpec(spark, deltaTable, specFile)
-                    passed += 1
-                  } else {
-                    errors += s"${testDir.getFileName}/$name: read-only spec but no captured " +
-                      s"table at $deltaTable"
-                  }
+                  validateReadOnly(SnapshotCapture.validateFromSpec(spark, deltaTable, specFile))
               }
 
             case other => throw new IllegalArgumentException(

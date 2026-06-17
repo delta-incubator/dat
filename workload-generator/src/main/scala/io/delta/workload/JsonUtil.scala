@@ -28,6 +28,7 @@ import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 import io.delta.workload.deltaharness.{LogView, SnapshotView}
+import io.delta.workload.log.{AddFile, CommitLog}
 
 // =============================================================================
 // Spec Expected types - success data or error info
@@ -291,16 +292,9 @@ private[workload] object SpecLayout {
    * Because commit index == table version, a low-level remove's `addedAtCommit` ordinal is the
    * version whose adds it tombstones — resolved here against the actual (engine-assigned) paths.
    */
-  def addPathsAt(tablePath: java.nio.file.Path, version: Int): Seq[String] = {
-    val commitFile = tablePath.resolve("_delta_log").resolve(f"$version%020d.json")
-    if (!java.nio.file.Files.exists(commitFile)) return Seq.empty
-    new String(java.nio.file.Files.readAllBytes(commitFile), "UTF-8")
-      .split("\n").filter(_.trim.nonEmpty)
-      .flatMap { line =>
-        val node = JsonUtil.mapper.readTree(line)
-        Option(node.get("add")).map(_.get("path").asText())
-      }.toSeq
-  }
+  def addPathsAt(tablePath: Path, version: Int): Seq[String] =
+    if (!Files.exists(CommitLog.commitFile(tablePath, version))) Seq.empty
+    else CommitLog.read(tablePath, version).collect { case a: AddFile => a.path }
 }
 
 // =============================================================================

@@ -328,23 +328,22 @@ test("missing_file", "Test missing data file") {
 
 ### modifyCommitActions — Action-Level Manipulation
 
-The modifier receives the full list of `(actionType, innerNode)` pairs for a commit and returns the (possibly reordered, filtered, or modified) list to write back.
+The modifier receives the commit's typed `Seq[Action]` (subtypes `AddFile`, `RemoveFile`, `Metadata`, `Protocol`, `Txn`, `DomainMetadata`, …; unrecognized or malformed lines arrive as `RawAction` and pass through unchanged) and returns the reordered, filtered, or modified list to write back. Use `.copy` to edit fields. For byte-exact corruption, use the raw `mutateTable` path below instead.
 
 ```scala
+import io.delta.workload.log.{AddFile, Metadata}
+
 // Modify add actions
-modifyCommitActions(t, version = 1) { actions =>
-  actions.map { case ("add", node) =>
-    node.put("stats", """{"numRecords":999}"""); ("add", node)
-    case other => other
-  }
+modifyCommitActions(t, version = 1) {
+  _.map { case a: AddFile => a.copy(stats = Some("""{"numRecords":999}""")); case other => other }
 }
 
 // Drop all add actions
-modifyCommitActions(t, version = 1) { _.filter(_._1 != "add") }
+modifyCommitActions(t, version = 1) { _.filterNot(_.isInstanceOf[AddFile]) }
 
-// Reorder — put metaData last
+// Reorder: put metaData last
 modifyCommitActions(t, version = 0) { actions =>
-  val (meta, rest) = actions.partition(_._1 == "metaData")
+  val (meta, rest) = actions.partition(_.isInstanceOf[Metadata])
   rest ++ meta
 }
 ```
