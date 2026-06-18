@@ -145,12 +145,7 @@ case class RemoveFileAction(
     addedAtCommit: Int,
     dataChange: Option[Boolean] = None)
 
-/**
- * Capture-time input for a low-level add: the caller supplies LOGICAL `rows` (matching the table's
- * schema, including any partition columns). The framework materializes them and writes them
- * through the engine; physical layout / stats are engine-derived. Not serialized — it only
- * crosses the `commitOp` boundary.
- */
+/** Logical `rows` for a low-level add (full schema incl. partition columns); engine-materialized, not serialized. */
 case class AddFileInput(
     rows: Seq[Map[String, Any]],
     dataChange: Option[Boolean] = None)

@@ -32,11 +32,11 @@ import io.delta.workload.{AddDomainMetadata, AppTxn}
 case class CommitRemoveFile(path: String, dataChange: Boolean)
 
 /**
- * A platform-neutral description of a low-level commit's NON-data actions. Carries only plain
- * Scala types and the generator's neutral action case classes — never `org.apache.spark.sql.delta.*`.
- * Data files are added separately, via [[DeltaHarness.commitWithData]], so the engine computes
- * their physical layout / stats (column-mapping aware).
+ * A platform-neutral description of a low-level commit. Carries only plain Scala types and the
+ * generator's neutral action case classes, never `org.apache.spark.sql.delta.*`.
  *
+ * @param addDataParquet       Parquet files of LOGICAL rows to add; the engine reads each and writes
+ *                             it into the table (column-mapping aware, computing stats/layout)
  * @param schemaJson           `StructType.json` to set as `metadata.schemaString`, or None to keep
  * @param properties           properties merged into `metadata.configuration`, or None to keep
  * @param setTransaction       optional `SetTransaction` (appId/version) action
@@ -45,6 +45,7 @@ case class CommitRemoveFile(path: String, dataChange: Boolean)
  * @param removeDomainMetadata domain names to tombstone
  */
 case class CommitRequest(
+    addDataParquet: Seq[String] = Nil,
     schemaJson: Option[String] = None,
     properties: Option[Map[String, String]] = None,
     setTransaction: Option[AppTxn] = None,
@@ -70,25 +71,17 @@ trait DeltaHarness {
 
   /**
    * Open a transaction at `tablePath`, apply the metadata update (schema/properties) if present,
-   * and commit the described actions using the platform's `DeltaOperations.ManualUpdate`.
+   * write any `req.addDataParquet` data files through the engine's own write path (honoring column
+   * mapping and partitioning, computing stats), and commit the produced AddFile actions together
+   * with `req`'s other actions in one `DeltaOperations.ManualUpdate`.
    *
    * Implementations MUST clear any internal DeltaLog cache before and after committing, mirroring
    * the `openLog` cache-clearing contract so consumers always see a fresh view.
-   */
-  def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Unit
-
-  /**
-   * Like [[commit]], but also writes data files through the engine's own write path. Each path in
-   * `addDataParquet` points to a Parquet file of LOGICAL rows; the implementation reads it and
-   * writes it into the table via the engine (honoring column mapping and partitioning, computing
-   * stats), then commits the produced AddFile actions together with `req`'s actions in one commit.
    *
    * @return the in-table `AddFile.path`s the engine produced (in `addDataParquet` order; a file
    *         may yield several adds when partitioned), so callers can reference them later.
    */
-  def commitWithData(
-      spark: SparkSession, tablePath: String,
-      addDataParquet: Seq[String], req: CommitRequest): Seq[String]
+  def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Seq[String]
 
   /**
    * The table's schema at `version` (latest if None). When `includePartition` is false the

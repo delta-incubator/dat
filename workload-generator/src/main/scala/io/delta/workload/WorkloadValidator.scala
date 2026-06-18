@@ -393,8 +393,8 @@ object WorkloadValidator {
 
   /**
    * Replay a low-level commit: write each add's bundled logical Parquet through the engine
-   * (`commitWithData` → column-mapping/partition/stats handled), and tombstone each remove's
-   * referenced prior add, resolved to this replay table's own paths at that commit/version.
+   * (via `req.addDataParquet`, so column-mapping/partition/stats are engine-handled), and tombstone
+   * each remove's referenced prior add, resolved to this replay table's own paths at that version.
    */
   private def replayLowLevelCommit(
       spark: SparkSession, commit: LowLevelCommitOp, idx: Int,
@@ -403,8 +403,9 @@ object WorkloadValidator {
       .map(af => testDir.resolve(af.dataFile).toAbsolutePath.toString)
     val removePaths = commit.removeFiles.getOrElse(Seq.empty)
       .flatMap(rf => SpecLayout.addPathsAt(java.nio.file.Paths.get(tablePath), rf.addedAtCommit))
-    DeltaHarness.get.commitWithData(spark, tablePath, addDataParquet,
+    DeltaHarness.get.commit(spark, tablePath,
       CommitRequest(
+        addDataParquet = addDataParquet,
         schemaJson = commit.schema.map(s => structOf(s).json),
         properties = commit.tableProperties,
         setTransaction = commit.txn,

@@ -565,8 +565,9 @@ class WorkloadContext private[workload] (
     val removePaths = removeFiles.getOrElse(Seq.empty)
       .flatMap(k => SpecLayout.addPathsAt(w.table.sourcePath, k))
     try {
-      DeltaHarness.get.commitWithData(spark, livePath, tempParquet.map(_.toAbsolutePath.toString),
+      DeltaHarness.get.commit(spark, livePath,
         CommitRequest(
+          addDataParquet = tempParquet.map(_.toAbsolutePath.toString),
           schemaJson = schemaDDL.map(ddl => StructType.fromDDL(ddl).json),
           properties = tableProperties,
           setTransaction = txn,

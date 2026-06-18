@@ -35,13 +35,7 @@ class DeltaSparkHarness extends DeltaHarness {
     new DeltaSparkLogView(DeltaLog.forTable(spark, tablePath))
   }
 
-  override def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Unit = {
-    commitWithData(spark, tablePath, Seq.empty, req)
-  }
-
-  override def commitWithData(
-      spark: SparkSession, tablePath: String,
-      addDataParquet: Seq[String], req: CommitRequest): Seq[String] = {
+  override def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Seq[String] = {
     DeltaLog.clearCache()
     val deltaLog = DeltaLog.forTable(spark, tablePath)
     val txn = deltaLog.startTransaction()
@@ -58,7 +52,7 @@ class DeltaSparkHarness extends DeltaHarness {
     // Engine-written data files: column mapping / partitioning / stats all handled by writeFiles.
     // Commit ALL file actions it returns (AddFile + AddCDCFile when change data feed is enabled);
     // only the AddFile paths are returned (for ordinal-based remove resolution).
-    val fileActions: Seq[FileAction] = addDataParquet.flatMap { p =>
+    val fileActions: Seq[FileAction] = req.addDataParquet.flatMap { p =>
       txn.writeFiles(spark.read.parquet(p))
     }
 
