@@ -108,8 +108,7 @@ class WriteSpecBuilder {
         // Materialize each low-level add's logical rows to the `dataFile` path recorded in the
         // action (full schema incl. partition columns, so replay's writeFiles can partition/map).
         if (rows.nonEmpty) {
-          val schema = DeltaHarness.get.schemaAt(spark, tablePath.toString, Some(idx.toLong),
-            includePartition = true)
+          val schema = DeltaHarness.get.schemaAt(spark, tablePath.toString, Some(idx.toLong))
           ll.addFiles.getOrElse(Seq.empty).zip(rows).foreach { case (af, r) =>
             DeltaHarness.get.writeRows(spark, schema, r, outputDir.resolve(af.dataFile))
           }
@@ -123,7 +122,7 @@ class WriteSpecBuilder {
     val writeName = s"${outputDir.getFileName.toString}_write"
     JsonUtil.writeSpec(
       outputDir.resolve("specs").resolve(s"$writeName.json"), WriteSpec(enriched.toSeq))
-    writeExpectedLatest(spark, log, tablePath, outputDir.resolve("expected").resolve(writeName))
+    writeExpectedLatest(spark, tablePath, outputDir.resolve("expected").resolve(writeName))
   }
 
   /**
@@ -135,7 +134,7 @@ class WriteSpecBuilder {
       spark: SparkSession, tablePath: String, outputDir: Path, idx: Int,
       rows: Seq[Seq[Map[String, Any]]]): Option[Seq[String]] = {
     rows.headOption.filter(_.nonEmpty).map { r =>
-      val schema = DeltaHarness.get.schemaAt(spark, tablePath, Some(idx.toLong), includePartition = true)
+      val schema = DeltaHarness.get.schemaAt(spark, tablePath, Some(idx.toLong))
       val rel = SpecLayout.commitDataFile(idx, "part-00000.parquet")
       DeltaHarness.get.writeRows(spark, schema, r, outputDir.resolve(rel))
       Seq(rel)
@@ -143,15 +142,10 @@ class WriteSpecBuilder {
   }
 
   /**
-   * Capture the expected final table state under the write spec's `expected/<name>_write/`:
-   *  - `table_content/`: Parquet of the latest snapshot's rows
-   *  - `table_version_metadata.json`: protocol + metadata of the latest snapshot
+   * Capture the write spec's expected final rows under `expected/<name>_write/table_content/`,
+   * which [[WorkloadValidator]] compares against the replayed table.
    */
-  private def writeExpectedLatest(
-      spark: SparkSession,
-      log: io.delta.workload.deltaharness.LogView,
-      tablePath: Path,
-      latestDir: Path): Unit = {
+  private def writeExpectedLatest(spark: SparkSession, tablePath: Path, latestDir: Path): Unit = {
     Files.createDirectories(latestDir)
 
     val contentDir = latestDir.resolve("table_content")
@@ -160,14 +154,5 @@ class WriteSpecBuilder {
     }
     spark.read.format("delta").load(tablePath.toString)
       .write.mode(SaveMode.Overwrite).parquet(contentDir.toString)
-
-    val snapshot = log.update()
-    val protocol = JsonUtil.mapper.treeToValue(
-      JsonUtil.mapper.readTree(snapshot.protocolJson).get("protocol"), classOf[Any])
-    val metadata = JsonUtil.mapper.treeToValue(
-      JsonUtil.mapper.readTree(snapshot.metadataJson).get("metaData"), classOf[Any])
-    JsonUtil.writeSpec(
-      latestDir.resolve("table_version_metadata.json"),
-      SnapshotExpected(protocol, metadata))
   }
 }

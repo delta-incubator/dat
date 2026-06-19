@@ -83,14 +83,8 @@ trait DeltaHarness {
    */
   def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Seq[String]
 
-  /**
-   * The table's schema at `version` (latest if None). When `includePartition` is false the
-   * partition columns are dropped, matching the layout of a raw data file referenced by a
-   * low-level `AddFile` (partition values ride on the action, not the file).
-   */
-  def schemaAt(
-      spark: SparkSession, tablePath: String,
-      version: Option[Long], includePartition: Boolean): StructType
+  /** The table's schema at `version` (latest if None). */
+  def schemaAt(spark: SparkSession, tablePath: String, version: Option[Long]): StructType
 
   /**
    * Materialize in-memory `rows` (the workload-generator's authoring surface) into a single Parquet
@@ -99,12 +93,6 @@ trait DeltaHarness {
    */
   def writeRows(
       spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]], dest: Path): Unit
-
-  /**
-   * Like [[writeRows]], but writes to a single Parquet file in a fresh temp directory and returns
-   * the produced file path.
-   */
-  def writeRowsToTemp(spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]]): Path
 }
 
 trait LogView {

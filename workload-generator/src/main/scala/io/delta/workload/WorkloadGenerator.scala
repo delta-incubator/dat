@@ -476,7 +476,7 @@ class WorkloadContext private[workload] (
     if (rowSeq.nonEmpty) {
       // Single-commit replace-as-select: write the rows to a temp Parquet and RTAS from it, so
       // the resulting schema matches what the bundled spec Parquet will reproduce on replay.
-      val parquet = DeltaHarness.get.writeRowsToTemp(spark, StructType.fromDDL(schema), rowSeq)
+      val parquet = writeRowsToTemp(StructType.fromDDL(schema), rowSeq)
       try {
         sql(s"CREATE OR REPLACE TABLE ${w.table.tableName} USING delta$partitionClause" +
           s"$propsClause AS SELECT * FROM parquet.`${parquet.toAbsolutePath}`")
@@ -494,6 +494,13 @@ class WorkloadContext private[workload] (
       properties = opt(properties)), Seq(rowSeq))
   }
 
+  /** Write `rows` to a single Parquet file in a fresh temp dir; the caller deletes it after use. */
+  private def writeRowsToTemp(schema: StructType, rows: Seq[Map[String, Any]]): Path = {
+    val dest = Files.createTempDirectory("row-parquet").resolve("part-00000.parquet")
+    DeltaHarness.get.writeRows(spark, schema, rows, dest)
+    dest
+  }
+
   /**
    * Insert `rows` (column -> value maps) and record the insert. An empty `rows` is a no-op:
    * it produces no commit, so recording it would both desync the commit-index/version mapping
@@ -505,9 +512,8 @@ class WorkloadContext private[workload] (
     // Drive the live insert from the SAME materialized Parquet the spec will bundle (via the
     // harness), so the captured table and the replayed table use one value encoder and
     // cannot diverge by type. The spec's own copy is re-materialized in buildSpec.
-    val schema = DeltaHarness.get.schemaAt(spark, w.table.sourcePath.toString,
-      version = None, includePartition = true)
-    val parquet = DeltaHarness.get.writeRowsToTemp(spark, schema, rowSeq)
+    val schema = DeltaHarness.get.schemaAt(spark, w.table.sourcePath.toString, version = None)
+    val parquet = writeRowsToTemp(schema, rowSeq)
     try {
       sql(s"INSERT INTO ${w.table.tableName} SELECT * FROM parquet.`${parquet.toAbsolutePath}`")
     } finally {
@@ -559,8 +565,8 @@ class WorkloadContext private[workload] (
     val adds = addFiles.getOrElse(Seq.empty)
 
     // Materialize each add's logical rows to a temp Parquet for the live write.
-    val schema = DeltaHarness.get.schemaAt(spark, livePath, version = None, includePartition = true)
-    val tempParquet = adds.map(in => DeltaHarness.get.writeRowsToTemp(spark, schema, in.rows))
+    val schema = DeltaHarness.get.schemaAt(spark, livePath, version = None)
+    val tempParquet = adds.map(in => writeRowsToTemp(schema, in.rows))
     // A remove targets all files added at the referenced commit (== that table version).
     val removePaths = removeFiles.getOrElse(Seq.empty)
       .flatMap(k => SpecLayout.addPathsAt(w.table.sourcePath, k))

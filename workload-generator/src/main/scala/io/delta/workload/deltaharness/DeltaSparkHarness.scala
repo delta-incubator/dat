@@ -79,18 +79,11 @@ class DeltaSparkHarness extends DeltaHarness {
   }
 
   override def schemaAt(
-      spark: SparkSession, tablePath: String,
-      version: Option[Long], includePartition: Boolean): StructType = {
+      spark: SparkSession, tablePath: String, version: Option[Long]): StructType = {
     val log = openLog(spark, tablePath)
     val snapshot = version.map(log.getSnapshotAt).getOrElse(log.update())
     val meta = JsonUtil.mapper.readTree(snapshot.metadataJson).get("metaData")
-    val full = DataType.fromJson(meta.get("schemaString").asText()).asInstanceOf[StructType]
-    if (includePartition) full
-    else {
-      val partCols = Option(meta.get("partitionColumns"))
-        .map(_.elements().asScala.map(_.asText()).toSet).getOrElse(Set.empty[String])
-      StructType(full.fields.filterNot(f => partCols.contains(f.name)))
-    }
+    DataType.fromJson(meta.get("schemaString").asText()).asInstanceOf[StructType]
   }
 
   override def writeRows(
@@ -111,14 +104,6 @@ class DeltaSparkHarness extends DeltaHarness {
     } finally {
       try FileUtils.deleteDirectory(tmp.toFile) catch { case _: Throwable => }
     }
-  }
-
-  override def writeRowsToTemp(
-      spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]]): Path = {
-    val dir = Files.createTempDirectory("row-parquet-rtas")
-    val dest = dir.resolve("part-00000.parquet")
-    writeRows(spark, schema, rows, dest)
-    dest
   }
 
   /**
