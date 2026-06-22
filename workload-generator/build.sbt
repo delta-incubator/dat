@@ -48,12 +48,13 @@ lazy val root = (project in file("."))
       val (deltaV, sparkV) = if (scalaBinaryVersion.value == "2.13")
         ("4.1.0", "4.1.0") else ("3.2.1", "3.5.4")
       Seq(
+        // provided: DAT test runners should already have these dependencies, so the published jar
+        // should not pull in its own versions, which may clash.
         "io.delta" %% "delta-spark" % deltaV % "provided",
         "org.apache.spark" %% "spark-sql" % sparkV % "provided",
-        "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.15.2",
-        "commons-io" % "commons-io" % "2.11.0",
-        // WorkloadTestSuite extends ScalaTest — needed at compile time
-        "org.scalatest" %% "scalatest" % "3.2.19",
+        "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.15.2" % "provided",
+        "commons-io" % "commons-io" % "2.11.0" % "provided",
+        "org.scalatest" %% "scalatest" % "3.2.19" % "provided",
         // Test dependencies
         "io.delta" %% "delta-spark" % deltaV % "test",
         "org.apache.spark" %% "spark-sql" % sparkV % "test",
