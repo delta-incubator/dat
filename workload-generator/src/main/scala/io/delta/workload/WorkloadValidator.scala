@@ -174,7 +174,7 @@ object WorkloadValidator {
       replayCommit(spark, c, idx, ref, path, testDir)
     }
     // Each commit must map to exactly one version, or ordinal-based remove resolution (which keys
-    // off commit index == table version) silently mis-resolves. Fail loud if replay desynced.
+    // off commit index == table version) silently resolves the wrong version. Fail loud if desynced.
     val finalVersion = DeltaHarness.get.openLog(spark, path).update().version
     require(finalVersion == writeSpec.commits.size - 1,
       s"replay produced ${finalVersion + 1} versions but the write spec has ${writeSpec.commits.size} " +

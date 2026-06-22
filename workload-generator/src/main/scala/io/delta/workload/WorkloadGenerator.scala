@@ -590,7 +590,7 @@ class WorkloadContext private[workload] (
     val newVersion = DeltaHarness.get.openLog(spark, livePath).update().version
     require(newVersion == idx,
       s"commitOp produced version $newVersion but expected ordinal $idx; commit index can no " +
-        "longer be used as the table version (ordinal-based removes would mis-resolve)")
+        "longer be used as the table version (ordinal-based removes would resolve incorrectly)")
 
     // Record the spec: adds become logical-Parquet pointers (materialized to data/ in buildSpec);
     // removes become ordinal references.
