@@ -18,7 +18,7 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path, Paths}
 
-import scala.collection.{IterableOnce, mutable}
+import scala.collection.mutable
 
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
@@ -469,7 +469,7 @@ class WorkloadContext private[workload] (
       schema: String,
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty,
-      rows: IterableOnce[Map[String, Any]] = Seq.empty): Unit = {
+      rows: Iterable[Map[String, Any]] = Seq.empty): Unit = {
     val rowSeq = rows.iterator.toSeq
     val partitionClause = partitionedByClause(partitionColumns)
     val propsClause = tblPropertiesClause(properties)
@@ -506,7 +506,7 @@ class WorkloadContext private[workload] (
    * it produces no commit, so recording it would both desync the commit-index/version mapping
    * and let the validator pass a spec with nothing to validate.
    */
-  def insertOp(w: WriteHandle, rows: IterableOnce[Map[String, Any]]): Unit = {
+  def insertOp(w: WriteHandle, rows: Iterable[Map[String, Any]]): Unit = {
     val rowSeq = rows.iterator.toSeq
     require(rowSeq.nonEmpty, "insertOp requires at least one row")
     // Drive the live insert from the SAME materialized Parquet the spec will bundle (via the
@@ -869,11 +869,11 @@ trait WorkloadOps {
       schema: String,
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty,
-      rows: IterableOnce[Map[String, Any]] = Seq.empty): Unit =
+      rows: Iterable[Map[String, Any]] = Seq.empty): Unit =
     current.replaceTableOp(w, schema, properties, partitionColumns, rows)
 
   /** Insert rows and record the insert. */
-  def insertOp(w: WriteHandle, rows: IterableOnce[Map[String, Any]]): Unit =
+  def insertOp(w: WriteHandle, rows: Iterable[Map[String, Any]]): Unit =
     current.insertOp(w, rows)
 
   /** Delete rows matching `predicate` and record the delete. */
