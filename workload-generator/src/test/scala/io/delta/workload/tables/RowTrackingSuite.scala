@@ -81,7 +81,7 @@ class RowTrackingSuite extends WorkloadTestSuite("row_tracking") {
     sql("INSERT INTO tbl VALUES (1, 'alice', 1.0),(2, 'bob', 2.0),(3, 'charlie', 3.0)")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("id", "value"))
+    readSpec(t, columns = Some(Seq("id", "value")))
     snapshotSpec(t)
   }
 

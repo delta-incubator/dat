@@ -25,9 +25,9 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (flag) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, true), (2, false), (3, true), (4, false)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "flag = true", name = "filter_true")
-    readSpec(t, predicate = "flag = false", name = "filter_false")
+    readSpec(t)
+    readSpec(t, predicate = "flag = true", name = Some("filter_true"))
+    readSpec(t, predicate = "flag = false", name = Some("filter_false"))
     snapshotSpec(t)
   }
 
@@ -36,10 +36,10 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (b) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, CAST(-128 AS BYTE)), (2, CAST(0 AS BYTE)), (3, CAST(127 AS BYTE)), (4, CAST(1 AS BYTE))")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "b = CAST(-128 AS BYTE)", name = "filter_min")
-    readSpec(t, predicate = "b = CAST(127 AS BYTE)", name = "filter_max")
-    readSpec(t, predicate = "b > CAST(0 AS BYTE)", name = "filter_positive")
+    readSpec(t)
+    readSpec(t, predicate = "b = CAST(-128 AS BYTE)", name = Some("filter_min"))
+    readSpec(t, predicate = "b = CAST(127 AS BYTE)", name = Some("filter_max"))
+    readSpec(t, predicate = "b > CAST(0 AS BYTE)", name = Some("filter_positive"))
     snapshotSpec(t)
   }
 
@@ -48,10 +48,10 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (amount) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, 99.99), (2, -100.50), (3, 0.01), (4, 12345.67)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "amount = 99.99", name = "filter_eq")
-    readSpec(t, predicate = "amount > 0", name = "filter_positive")
-    readSpec(t, predicate = "amount = -100.50", name = "filter_boundary")
+    readSpec(t)
+    readSpec(t, predicate = "amount = 99.99", name = Some("filter_eq"))
+    readSpec(t, predicate = "amount > 0", name = Some("filter_positive"))
+    readSpec(t, predicate = "amount = -100.50", name = Some("filter_boundary"))
     snapshotSpec(t)
   }
 
@@ -60,9 +60,9 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (d) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, 3.14159), (2, -2.71828), (3, 1000000.001), (4, 0.0)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "d > 0", name = "filter_positive")
-    readSpec(t, predicate = "d > 100", name = "filter_large")
+    readSpec(t)
+    readSpec(t, predicate = "d > 0", name = Some("filter_positive"))
+    readSpec(t, predicate = "d > 100", name = Some("filter_large"))
     snapshotSpec(t)
   }
 
@@ -71,10 +71,10 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (tag) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, ''), (2, 'hello'), (3, CAST(NULL AS STRING)), (4, 'world')")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "tag = ''", name = "filter_empty_string")
-    readSpec(t, predicate = "tag IS NULL", name = "filter_null")
-    readSpec(t, predicate = "tag IS NOT NULL AND tag != ''", name = "filter_nonempty")
+    readSpec(t)
+    readSpec(t, predicate = "tag = ''", name = Some("filter_empty_string"))
+    readSpec(t, predicate = "tag IS NULL", name = Some("filter_null"))
+    readSpec(t, predicate = "tag IS NOT NULL AND tag != ''", name = Some("filter_nonempty"))
     snapshotSpec(t)
   }
 
@@ -83,9 +83,9 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (f) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, CAST(1.5 AS FLOAT)), (2, CAST(-3.14 AS FLOAT)), (3, CAST(0.0 AS FLOAT)), (4, CAST(99.9 AS FLOAT))")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "f = CAST(1.5 AS FLOAT)", name = "filter_eq")
-    readSpec(t, predicate = "f > CAST(0.0 AS FLOAT)", name = "filter_positive")
+    readSpec(t)
+    readSpec(t, predicate = "f = CAST(1.5 AS FLOAT)", name = Some("filter_eq"))
+    readSpec(t, predicate = "f > CAST(0.0 AS FLOAT)", name = Some("filter_positive"))
     snapshotSpec(t)
   }
 
@@ -97,12 +97,12 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       (3, 'c', 'cat_b', 10, true), (4, 'd', 'cat_b', 30, false),
       (5, 'e', 'cat_a', 10, false), (6, 'f', 'cat_c', 40, true)""")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "p_str = 'cat_a'", name = "filter_str")
-    readSpec(t, predicate = "p_str = 'cat_a' AND p_int = 10", name = "filter_str_and_int")
-    readSpec(t, predicate = "p_int >= 20 AND p_int <= 30", name = "filter_int_range")
-    readSpec(t, predicate = "p_bool = true", name = "filter_bool_only")
-    readSpec(t, predicate = "p_str = 'cat_b' AND p_int = 10 AND p_bool = true", name = "filter_all_three")
+    readSpec(t)
+    readSpec(t, predicate = "p_str = 'cat_a'", name = Some("filter_str"))
+    readSpec(t, predicate = "p_str = 'cat_a' AND p_int = 10", name = Some("filter_str_and_int"))
+    readSpec(t, predicate = "p_int >= 20 AND p_int <= 30", name = Some("filter_int_range"))
+    readSpec(t, predicate = "p_bool = true", name = Some("filter_bool_only"))
+    readSpec(t, predicate = "p_str = 'cat_b' AND p_int = 10 AND p_bool = true", name = Some("filter_all_three"))
     snapshotSpec(t)
   }
 
@@ -111,10 +111,10 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (category) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, 'A'), (2, CAST(NULL AS STRING)), (3, 'B'), (4, CAST(NULL AS STRING))")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "category = 'A'", name = "filter_eq")
-    readSpec(t, predicate = "category IS NULL", name = "filter_null")
-    readSpec(t, predicate = "category IS NOT NULL", name = "filter_not_null")
+    readSpec(t)
+    readSpec(t, predicate = "category = 'A'", name = Some("filter_eq"))
+    readSpec(t, predicate = "category IS NULL", name = Some("filter_null"))
+    readSpec(t, predicate = "category IS NOT NULL", name = Some("filter_not_null"))
     snapshotSpec(t)
   }
 
@@ -123,10 +123,10 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       PARTITIONED BY (s) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, CAST(-32768 AS SHORT)), (2, CAST(0 AS SHORT)), (3, CAST(32767 AS SHORT)), (4, CAST(100 AS SHORT))")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "s = CAST(-32768 AS SHORT)", name = "filter_min")
-    readSpec(t, predicate = "s = CAST(32767 AS SHORT)", name = "filter_max")
-    readSpec(t, predicate = "s >= CAST(0 AS SHORT) AND s <= CAST(100 AS SHORT)", name = "filter_range")
+    readSpec(t)
+    readSpec(t, predicate = "s = CAST(-32768 AS SHORT)", name = Some("filter_min"))
+    readSpec(t, predicate = "s = CAST(32767 AS SHORT)", name = Some("filter_max"))
+    readSpec(t, predicate = "s >= CAST(0 AS SHORT) AND s <= CAST(100 AS SHORT)", name = Some("filter_range"))
     snapshotSpec(t)
   }
 
@@ -136,10 +136,10 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
     sql("""INSERT INTO tbl VALUES
       (1, 'hello world'), (2, 'caf\u00e9'), (3, 'a/b=c&d'), (4, 'normal')""")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "label = 'hello world'", name = "filter_space")
-    readSpec(t, predicate = "label = 'caf\u00e9'", name = "filter_unicode")
-    readSpec(t, predicate = "label = 'a/b=c&d'", name = "filter_special")
+    readSpec(t)
+    readSpec(t, predicate = "label = 'hello world'", name = Some("filter_space"))
+    readSpec(t, predicate = "label = 'caf\u00e9'", name = Some("filter_unicode"))
+    readSpec(t, predicate = "label = 'a/b=c&d'", name = Some("filter_special"))
     snapshotSpec(t)
   }
 
@@ -150,9 +150,9 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       (1, TIMESTAMP_NTZ'2024-01-01 00:00:00'), (2, TIMESTAMP_NTZ'2024-06-15 12:30:00'),
       (3, TIMESTAMP_NTZ'2024-12-31 23:59:59')""")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "ts_ntz = TIMESTAMP_NTZ'2024-06-15 12:30:00'", name = "filter_eq")
-    readSpec(t, predicate = "ts_ntz >= TIMESTAMP_NTZ'2024-06-01 00:00:00'", name = "filter_range")
+    readSpec(t)
+    readSpec(t, predicate = "ts_ntz = TIMESTAMP_NTZ'2024-06-15 12:30:00'", name = Some("filter_eq"))
+    readSpec(t, predicate = "ts_ntz >= TIMESTAMP_NTZ'2024-06-01 00:00:00'", name = Some("filter_range"))
     snapshotSpec(t)
   }
 
@@ -163,9 +163,9 @@ class PartitionValuesSuite extends WorkloadTestSuite("partition_values") {
       (1, TIMESTAMP'2024-01-01 00:00:00'), (2, TIMESTAMP'2024-06-15 12:30:00.123456'),
       (3, TIMESTAMP'2024-12-31 23:59:59')""")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "ts = TIMESTAMP'2024-06-15 12:30:00.123456'", name = "filter_eq")
-    readSpec(t, predicate = "ts >= TIMESTAMP'2024-06-01 00:00:00'", name = "filter_range")
+    readSpec(t)
+    readSpec(t, predicate = "ts = TIMESTAMP'2024-06-15 12:30:00.123456'", name = Some("filter_eq"))
+    readSpec(t, predicate = "ts >= TIMESTAMP'2024-06-01 00:00:00'", name = Some("filter_range"))
     snapshotSpec(t)
   }
 

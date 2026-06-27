@@ -18,7 +18,6 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path, Paths}
 
-import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach}
 import org.scalatest.funsuite.AnyFunSuite
@@ -49,7 +48,6 @@ import org.scalatest.funsuite.AnyFunSuite
  *
  * Environment variables:
  *   WORKLOAD_OUTPUT_DIR - Output directory (default: /tmp/workloads)
- *   WORKLOAD_FORCE - Regenerate even if output exists (default: false)
  */
 abstract class WorkloadTestSuite(override val suiteName: String)
     extends AnyFunSuite
@@ -60,10 +58,6 @@ abstract class WorkloadTestSuite(override val suiteName: String)
   protected def outputDir: Path = Paths.get(
     sys.env.getOrElse("WORKLOAD_OUTPUT_DIR",
       sys.props.getOrElse("WORKLOAD_OUTPUT_DIR", "/tmp/workloads")))
-
-  protected def force: Boolean =
-    sys.env.getOrElse("WORKLOAD_FORCE",
-      sys.props.getOrElse("WORKLOAD_FORCE", "false")).toBoolean
 
   @transient protected var _spark: SparkSession = _
   private var _ctx: WorkloadContext = _
@@ -154,7 +148,6 @@ abstract class WorkloadTestSuite(override val suiteName: String)
       WorkloadContext.withContext(_ctx) {
         testFun
 
-        // Skip if output exists (unless force mode)
         if (_ctx.tableSpecs.isEmpty) {
           info("No tables declared (missing registerTable()?)")
         } else {
@@ -164,22 +157,12 @@ abstract class WorkloadTestSuite(override val suiteName: String)
           }
 
           for (ts <- _ctx.tableSpecs) {
-            val testOutputDir = outputDir.resolve(ts.outputName)
-
-            if (!force && Files.exists(testOutputDir.resolve("table_info.json"))) {
-              info(s"Skipped ${ts.outputName} (exists)")
-              cancel(s"${ts.outputName} already exists, use WORKLOAD_FORCE=true to regenerate")
-            } else {
-              val result = WorkloadGenerator.generateTable(_spark, ts, outputDir)
-              info(s"Generated ${result.specsGenerated} specs")
-            }
+            // Always regenerate and validate; an existing output is overwritten by generateTable.
+            val testId = WorkloadGenerator.generateTable(_spark, ts, outputDir)
+            info(s"Generated $testId")
           }
         }
       }
     }
-  }
-
-  private def cleanupDir(dir: Path): Unit = {
-    if (Files.exists(dir)) FileUtils.deleteDirectory(dir.toFile)
   }
 }

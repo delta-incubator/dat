@@ -31,7 +31,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -40,7 +40,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.appendOnly' = 'true', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -50,7 +50,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl ADD CONSTRAINT positive CHECK (id >= 0)")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -59,7 +59,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.columnMapping.mode' = 'name', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -68,7 +68,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -77,7 +77,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -87,8 +87,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
   }
@@ -101,8 +101,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.feature.checkConstraints' = 'supported')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -115,7 +115,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -127,7 +127,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -138,8 +138,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -151,7 +151,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_after_overwrite")
+    readSpec(t, name = Some("read_after_overwrite"))
     snapshotSpec(t)
   }
 
@@ -162,7 +162,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('myProp' = 'true')")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_after_overwrite")
+    readSpec(t, name = Some("read_after_overwrite"))
     snapshotSpec(t)
   }
 
@@ -172,7 +172,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_after_overwrite")
+    readSpec(t, name = Some("read_after_overwrite"))
     snapshotSpec(t)
   }
 
@@ -182,7 +182,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_after_overwrite")
+    readSpec(t, name = Some("read_after_overwrite"))
     snapshotSpec(t)
   }
 
@@ -192,7 +192,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_after_overwrite")
+    readSpec(t, name = Some("read_after_overwrite"))
     snapshotSpec(t)
   }
 
@@ -201,7 +201,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -210,7 +210,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -219,7 +219,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -228,7 +228,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -237,7 +237,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.appendOnly' = 'true', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -248,7 +248,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
         'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -259,8 +259,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("CREATE OR REPLACE TABLE tbl (id LONG) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')")
     sql("INSERT INTO tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, version = 0, name = "read_v0")
-    readSpec(t, name = "read_v1")
+    readSpec(t, version = 0, name = Some("read_v0"))
+    readSpec(t, name = Some("read_v1"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -271,7 +271,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -281,7 +281,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
         'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -290,7 +290,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.appendOnly' = 'true', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -299,7 +299,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.columnMapping.mode' = 'name', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -308,7 +308,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -317,7 +317,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true', 'delta.columnMapping.mode' = 'name')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -328,8 +328,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -343,8 +343,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -356,7 +356,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -366,7 +366,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.feature.checkConstraints' = 'supported')")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -377,8 +377,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.appendOnly' = 'true')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -390,7 +390,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl ADD CONSTRAINT positive CHECK (id > 0)")
     sql("INSERT INTO tbl VALUES (1), (2), (3), (4), (5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -404,7 +404,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
         'delta.enableChangeDataFeed' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -413,7 +413,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableRowTracking' = 'true', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -423,8 +423,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -439,8 +439,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(5)")
     sql("INSERT OVERWRITE tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -453,8 +453,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -468,8 +468,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.appendOnly' = 'false')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -482,8 +482,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.enableChangeDataFeed' = 'false')")
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -497,7 +497,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
         'delta.feature.changeDataFeed' = 'supported')""")
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -506,7 +506,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.columnMapping.mode' = 'name', 'delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -515,7 +515,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -525,8 +525,8 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id FROM range(20)")
     sql("DELETE FROM tbl WHERE id < 10")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -539,9 +539,9 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl SELECT id + 5 FROM range(5)")
     sql("INSERT INTO tbl SELECT id + 10 FROM range(5)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
-    readSpec(t, version = 0, name = "read_v0")
-    readSpec(t, version = 1, name = "read_v1")
+    readSpec(t, name = Some("read_latest"))
+    readSpec(t, version = 0, name = Some("read_v0"))
+    readSpec(t, version = 1, name = Some("read_v1"))
     snapshotSpec(t)
     snapshotSpec(t, version = 0)
     snapshotSpec(t, version = 1)
@@ -749,7 +749,7 @@ class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
     sql("INSERT INTO tbl VALUES (1, 'a'), (2, 'b'), (3, 'c')")
     sql("DELETE FROM tbl WHERE id = 2")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
+    readSpec(t)
     snapshotSpec(t)
   }
 

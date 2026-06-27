@@ -122,9 +122,9 @@ class InCommitTimestampSuite extends WorkloadTestSuite("in_commit_timestamp") {
     readSpec(t, version = 0)
     readSpec(t, version = 1)
     readSpec(t, version = 2)
-    readSpec(t, timestamp = t.getTimestampForVersion(0), name = "timestamp_v0")
-    readSpec(t, timestamp = t.getTimestampForVersion(1), name = "timestamp_v1")
-    readSpec(t, timestamp = t.getTimestampForVersion(2), name = "timestamp_v2")
+    readSpec(t, timestamp = t.getTimestampForVersion(0), name = Some("timestamp_v0"))
+    readSpec(t, timestamp = t.getTimestampForVersion(1), name = Some("timestamp_v1"))
+    readSpec(t, timestamp = t.getTimestampForVersion(2), name = Some("timestamp_v2"))
     snapshotSpec(t)
   }
 
@@ -138,9 +138,9 @@ class InCommitTimestampSuite extends WorkloadTestSuite("in_commit_timestamp") {
     readSpec(t, version = 0)
     readSpec(t, version = 1)
     readSpec(t, version = 2)
-    readSpec(t, timestamp = t.getTimestampForVersion(0), name = "timestamp_v0")
-    readSpec(t, timestamp = t.getTimestampForVersion(1), name = "timestamp_v1")
-    readSpec(t, timestamp = t.getTimestampForVersion(2), name = "timestamp_v2")
+    readSpec(t, timestamp = t.getTimestampForVersion(0), name = Some("timestamp_v0"))
+    readSpec(t, timestamp = t.getTimestampForVersion(1), name = Some("timestamp_v1"))
+    readSpec(t, timestamp = t.getTimestampForVersion(2), name = Some("timestamp_v2"))
     snapshotSpec(t)
   }
 

@@ -97,7 +97,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("DELETE FROM tbl WHERE id IN (2, 4)")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("id", "full_name"))
+    readSpec(t, columns = Some(Seq("id", "full_name")))
     readSpec(t, predicate = "id > 2")
     snapshotSpec(t)
   }
@@ -274,8 +274,8 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("INSERT INTO tbl VALUES (1,'alice',1.1),(2,'bob',2.2),(3,'charlie',3.3),(4,'diana',4.4)")
     sql("DELETE FROM tbl WHERE id IN (2, 4)")
     val t = registerTable("tbl")
-    readSpec(t, columns = Seq("id", "name"))
-    readSpec(t, columns = Seq("value"))
+    readSpec(t, columns = Some(Seq("id", "name")))
+    readSpec(t, columns = Some(Seq("value")))
     snapshotSpec(t)
   }
 
@@ -295,8 +295,8 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("INSERT INTO tbl VALUES (1,'a',10),(2,'b',20),(3,'c',30),(4,'d',40),(5,'e',50)")
     sql("DELETE FROM tbl WHERE id IN (2, 4)")
     val t = registerTable("tbl")
-    readSpec(t, columns = Seq("id", "name"), predicate = "value > 20")
-    readSpec(t, columns = Seq("name", "value"), predicate = "id < 4")
+    readSpec(t, columns = Some(Seq("id", "name")), predicate = "value > 20")
+    readSpec(t, columns = Some(Seq("name", "value")), predicate = "id < 4")
     snapshotSpec(t)
   }
 
@@ -368,7 +368,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("DELETE FROM tbl WHERE id IN (2, 4)")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("id", "full_name"))
+    readSpec(t, columns = Some(Seq("id", "full_name")))
     readSpec(t, predicate = "value > 200")
     snapshotSpec(t)
   }
@@ -525,7 +525,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     readSpec(t)
     readSpec(t, predicate = "dept = 'eng'")
     readSpec(t, predicate = "dept = 'hr'")
-    readSpec(t, columns = Seq("id", "salary"))
+    readSpec(t, columns = Some(Seq("id", "salary")))
     snapshotSpec(t)
   }
 
@@ -550,8 +550,8 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("DELETE FROM tbl WHERE value IN (300, 250, 350, 900, 1353, 1567, 1800)")
     sql("INSERT INTO tbl VALUES (900), (1567)")
     val t = registerTable("tbl")
-    readSpec(t, version = 0, name = "version_0")
-    readSpec(t, version = 4, name = "version_4")
+    readSpec(t, version = 0, name = Some("version_0"))
+    readSpec(t, version = 4, name = Some("version_4"))
     snapshotSpec(t)
   }
 
@@ -573,8 +573,8 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("""INSERT INTO tbl (id, name)
       SELECT CAST(id AS INT), CONCAT('name_', CAST(id AS STRING)) FROM range(2500, 3000)""")
     val t = registerTable("tbl")
-    readSpec(t, version = 0, name = "version_0")
-    readSpec(t, version = 4, name = "version_4")
+    readSpec(t, version = 0, name = Some("version_0"))
+    readSpec(t, version = 4, name = Some("version_4"))
     snapshotSpec(t)
   }
 
@@ -611,7 +611,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("DELETE FROM tbl WHERE value IN (300, 250, 350, 900, 1353, 1567, 1800)")
     sql("INSERT INTO tbl VALUES (900), (1567)")
     val t = registerTable("tbl")
-    readSpec(t, name = "count")
+    readSpec(t, name = Some("count"))
     snapshotSpec(t)
   }
 
@@ -620,7 +620,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, 'test')")
     val t = registerTable("tbl")
-    readSpec(t, name = "count")
+    readSpec(t, name = Some("count"))
     snapshotSpec(t)
   }
 
@@ -634,7 +634,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     // Delete even ids < 200
     sql("DELETE FROM tbl WHERE id % 2 = 0 AND id < 200")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_delete")
+    readSpec(t, name = Some("after_delete"))
     snapshotSpec(t)
   }
 
@@ -647,7 +647,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     // Second delete (on table already containing DVs)
     sql("DELETE FROM tbl WHERE value IN (49, 29, 7, 8, 17, 36)")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_additional_delete")
+    readSpec(t, name = Some("after_additional_delete"))
     snapshotSpec(t)
   }
 
@@ -656,7 +656,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, 'test')")
     val t = registerTable("tbl")
-    readSpec(t, name = "table2_latest")
+    readSpec(t, name = Some("table2_latest"))
     snapshotSpec(t)
   }
 
@@ -665,8 +665,8 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1, 'test')")
     val t = registerTable("tbl")
-    readSpec(t, name = "table2_latest_v1")
-    readSpec(t, version = 0, name = "table2_version_0")
+    readSpec(t, name = Some("table2_latest_v1"))
+    readSpec(t, version = 0, name = Some("table2_version_0"))
     snapshotSpec(t)
   }
 
@@ -677,7 +677,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("DELETE FROM tbl WHERE value IN (0, 5, 10, 15)")
     sql("INSERT INTO tbl SELECT id FROM range(20, 24)")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_insert")
+    readSpec(t, name = Some("after_insert"))
     snapshotSpec(t)
   }
 
@@ -694,8 +694,8 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')")
     sql("DELETE FROM tbl WHERE col1 = 2")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_delete")
-    readSpec(t, predicate = "col1 = 2", name = "filter_col1_eq_2")
+    readSpec(t, name = Some("after_delete"))
+    readSpec(t, predicate = "col1 = 2", name = Some("filter_col1_eq_2"))
     snapshotSpec(t)
   }
 
@@ -706,7 +706,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("ALTER TABLE tbl SET TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')")
     sql("DELETE FROM tbl WHERE id % 2 = 0 AND id < 20")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_delete")
+    readSpec(t, name = Some("after_delete"))
     snapshotSpec(t)
   }
 
@@ -723,7 +723,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
       WHEN MATCHED THEN UPDATE SET value = s.value
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_merge")
+    readSpec(t, name = Some("after_merge"))
     snapshotSpec(t)
   }
 
@@ -734,7 +734,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     sql("DELETE FROM tbl WHERE value IN (0, 9)")
     sql("UPDATE tbl SET value = -1 WHERE value = 1")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_update")
+    readSpec(t, name = Some("after_update"))
     snapshotSpec(t)
   }
 
@@ -746,7 +746,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     // Trying to update a deleted row - should be a no-op
     sql("UPDATE tbl SET value = -1 WHERE value = 0")
     val t = registerTable("tbl")
-    readSpec(t, name = "after_noop_update")
+    readSpec(t, name = Some("after_noop_update"))
     snapshotSpec(t)
   }
 
@@ -764,11 +764,11 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
       WHEN NOT MATCHED THEN INSERT (id) VALUES (s.value)""")
     sql("DELETE FROM tbl WHERE id = 4")
     val t = registerTable("tbl")
-    readSpec(t, version = 0, name = "version_0_initial")
-    readSpec(t, version = 1, name = "version_1_after_delete")
-    readSpec(t, version = 2, name = "version_2_after_update")
-    readSpec(t, version = 3, name = "version_3_after_merge")
-    readSpec(t, version = 4, name = "version_4_final")
+    readSpec(t, version = 0, name = Some("version_0_initial"))
+    readSpec(t, version = 1, name = Some("version_1_after_delete"))
+    readSpec(t, version = 2, name = Some("version_2_after_update"))
+    readSpec(t, version = 3, name = Some("version_3_after_merge"))
+    readSpec(t, version = 4, name = Some("version_4_final"))
     snapshotSpec(t)
   }
 
@@ -780,7 +780,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     // The original table has a DV that removes ~50000 rows
     sql("DELETE FROM tbl WHERE value >= 0 AND value < 50000")
     val t = registerTable("tbl")
-    readSpec(t, name = "full_table_count")
+    readSpec(t, name = Some("full_table_count"))
     snapshotSpec(t)
   }
 
@@ -789,7 +789,7 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
       TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_no_dv_table")
+    readSpec(t, name = Some("read_no_dv_table"))
     snapshotSpec(t)
   }
 

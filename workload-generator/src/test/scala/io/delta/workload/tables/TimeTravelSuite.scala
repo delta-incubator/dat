@@ -17,6 +17,7 @@
 package io.delta.workload.tables
 
 import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.engine.SnapshotResolver
 
 class TimeTravelSuite extends WorkloadTestSuite("time_travel") {
 
@@ -45,10 +46,12 @@ class TimeTravelSuite extends WorkloadTestSuite("time_travel") {
     val t = registerTable("tbl")
     val ts1 = t.getTimestampForVersion(1)
     val ts2 = t.getTimestampForVersion(2)
-    readSpec(t, timestamp = ts1, name = "read_ts_v1")
-    readSpec(t, timestamp = ts2, name = "read_ts_v2")
-    readSpec(t, timestamp = "2099-01-01 00:00:00.000", name = "read_ts_future")
-    readSpec(t, timestamp = "1970-01-01 00:00:00.000", name = "read_ts_epoch")
+    readSpec(t, timestamp = ts1, name = Some("read_ts_v1"))
+    readSpec(t, timestamp = ts2, name = Some("read_ts_v2"))
+    readSpec(t, timestamp = SnapshotResolver.parseTimestamp(spark, "2099-01-01 00:00:00.000"),
+      name = Some("read_ts_future"))
+    readSpec(t, timestamp = SnapshotResolver.parseTimestamp(spark, "1970-01-01 00:00:00.000"),
+      name = Some("read_ts_epoch"))
     snapshotSpec(t, timestamp = ts1)
     snapshotSpec(t)
   }
@@ -333,17 +336,14 @@ class TimeTravelSuite extends WorkloadTestSuite("time_travel") {
     sql("CREATE TABLE tbl (id INT) USING delta")
     sql("INSERT INTO tbl VALUES (1),(2)")
     val t = registerTable("tbl")
-    readSpec(t, timestamp = "2099-12-31 23:59:59.999")
+    readSpec(t, timestamp = SnapshotResolver.parseTimestamp(spark, "2099-12-31 23:59:59.999"))
     snapshotSpec(t)
   }
 
-  test("invalid_timestamp_error") {
-    sql("CREATE TABLE tbl (id INT) USING delta")
-    sql("INSERT INTO tbl VALUES (1)")
-    val t = registerTable("tbl")
-    readSpec(t, timestamp = "not-a-timestamp")
-    snapshotSpec(t)
-  }
+  // NOTE: the former `invalid_timestamp_error` test (timestamp = "not-a-timestamp") is gone:
+  // the typed `Instant` DSL makes a malformed timestamp string unrepresentable by construction, so
+  // there is no longer a way to author that workload. `future_timestamp_error` above still covers
+  // the timestamp-out-of-range error path.
 
   test("at_syntax") {
     sql("""CREATE TABLE tbl (id BIGINT) USING delta
@@ -530,9 +530,9 @@ class TimeTravelSuite extends WorkloadTestSuite("time_travel") {
     // v2: 5 more rows (11..15)
     sql("INSERT INTO tbl VALUES (11),(12),(13),(14),(15)")
     val t = registerTable("tbl")
-    readSpec(t, name = "readLatest")
-    readSpec(t, version = 0, name = "readV0")
-    readSpec(t, version = 1, name = "readV1")
+    readSpec(t, name = Some("readLatest"))
+    readSpec(t, version = 0, name = Some("readV0"))
+    readSpec(t, version = 1, name = Some("readV1"))
     snapshotSpec(t)
   }
 

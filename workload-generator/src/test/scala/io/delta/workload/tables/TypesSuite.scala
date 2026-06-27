@@ -37,7 +37,7 @@ class TypesSuite extends WorkloadTestSuite("types") {
       (42, 0, 0.0, -1.0, '', true, X'00', 0.000000, DATE'1970-01-01', TIMESTAMP'1970-01-01 00:00:00')""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("int_col", "string_col"))
+    readSpec(t, columns = Some(Seq("int_col", "string_col")))
     snapshotSpec(t)
   }
 
@@ -51,7 +51,7 @@ class TypesSuite extends WorkloadTestSuite("types") {
       (2, named_struct('name','bob','age',25), array('c'), map('z',3))""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("id", "info"))
+    readSpec(t, columns = Some(Seq("id", "info")))
     snapshotSpec(t)
   }
 
@@ -91,7 +91,7 @@ class TypesSuite extends WorkloadTestSuite("types") {
     val t = registerTable("tbl")
     readSpec(t)
     readSpec(t, predicate = "category = 'A'")
-    readSpec(t, columns = Seq("id", "category"))
+    readSpec(t, columns = Some(Seq("id", "category")))
     snapshotSpec(t)
   }
 

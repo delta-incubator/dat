@@ -257,8 +257,8 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
     sql("INSERT INTO tbl VALUES (1,'alice',95.5,'A'),(2,'bob',82.3,'B'),(3,'charlie',91.0,'A')")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("id", "name"))
-    readSpec(t, columns = Seq("score"))
+    readSpec(t, columns = Some(Seq("id", "name")))
+    readSpec(t, columns = Some(Seq("score")))
     snapshotSpec(t)
   }
 
@@ -471,8 +471,8 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
     sql("CREATE TABLE tbl (a INT, b STRING, c DOUBLE) USING delta")
     sql("INSERT INTO tbl VALUES (1, 'hello', 3.14), (2, 'world', 2.72)")
     val t = registerTable("tbl")
-    readSpec(t, columns = Seq("c", "a"))
-    readSpec(t, columns = Seq("b"))
+    readSpec(t, columns = Some(Seq("c", "a")))
+    readSpec(t, columns = Some(Seq("b")))
     snapshotSpec(t)
   }
 
@@ -502,7 +502,7 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
     // 20 rows: id 0..19, data='oss_test'
     sql("INSERT INTO tbl SELECT id, 'oss_test' FROM range(20)")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -511,8 +511,8 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
       PARTITIONED BY (part) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
     sql("INSERT INTO tbl VALUES (1,'a',10),(2,'b',20),(3,'a',30),(4,'b',40),(5,'c',50)")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
-    readSpec(t, predicate = "part = 'a'", name = "readPartA")
+    readSpec(t, name = Some("readAll"))
+    readSpec(t, predicate = "part = 'a'", name = Some("readPartA"))
     snapshotSpec(t)
   }
 
@@ -523,9 +523,9 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
     sql("""INSERT INTO tbl
       SELECT id, CASE WHEN id < 25 THEN 'low' ELSE 'high' END FROM range(50)""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
-    readSpec(t, predicate = "id >= 40", name = "readHighId")
-    readSpec(t, predicate = "category = 'low'", name = "readLow")
+    readSpec(t, name = Some("readAll"))
+    readSpec(t, predicate = "id >= 40", name = Some("readHighId"))
+    readSpec(t, predicate = "category = 'low'", name = Some("readLow"))
     snapshotSpec(t)
   }
 
@@ -535,8 +535,8 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
     // 10 rows: id 0..9
     sql("INSERT INTO tbl SELECT id FROM range(10)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all")
-    readSpec(t, predicate = "id < 5", name = "read_filtered")
+    readSpec(t)
+    readSpec(t, predicate = "id < 5", name = Some("read_filtered"))
     snapshotSpec(t)
   }
 

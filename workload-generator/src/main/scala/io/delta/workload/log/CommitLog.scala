@@ -60,7 +60,13 @@ object CommitLog {
   def write(tableDir: Path, version: Long, actions: Seq[Action]): Unit =
     writeRaw(tableDir, version, actions.map(_.toJson))
 
-  /** Read → transform → write. The common case for corruption / mutation tests. */
+  /**
+   * Read → transform → write. Actions are re-serialized from the typed model, so this is for
+   * action-level edits (filter, reorder, `.copy` fields); it does not preserve fields the ADT
+   * does not model or the exact byte layout of untouched lines. For byte-exact corruption, write
+   * the raw lines directly (e.g. via mutateTable). Unrecognized/malformed lines round-trip as
+   * [[RawAction]], so they are preserved verbatim.
+   */
   def mutate(tableDir: Path, version: Long)(fn: Seq[Action] => Seq[Action]): Unit =
     write(tableDir, version, fn(read(tableDir, version)))
 }

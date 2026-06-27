@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.delta.workload
+package io.delta.workload.capture
 
 import java.nio.file.{Files, Path}
 
@@ -24,8 +24,11 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions.{col, to_json}
 
 import io.delta.workload.deltaharness.DeltaHarness
+import io.delta.workload.json.JsonUtil
+import io.delta.workload.log.{CommitLog, LastCheckpointInfo, RemoveFile}
+import io.delta.workload.model._
 
-object TableInfoWriter {
+object TableInfoCapture {
 
   def write(
       spark: SparkSession,
@@ -36,22 +39,8 @@ object TableInfoWriter {
       tags: Seq[String] = Seq.empty): Unit = {
     val log = DeltaHarness.get.openLog(spark, tablePath.toString)
       val snapshot = log.update()
-
-      val metadataJson = JsonUtil.mapper.readTree(snapshot.metadataJson).get("metaData")
-      val schemaObj = JsonUtil.mapper.readValue(metadataJson.get("schemaString").asText(), classOf[Any])
-
-      val protocolJson = JsonUtil.mapper.readTree(snapshot.protocolJson).get("protocol")
-      val minReaderV = protocolJson.get("minReaderVersion").asInt()
-      val minWriterV = protocolJson.get("minWriterVersion").asInt()
-      val readerFeatures = Option(protocolJson.get("readerFeatures"))
-        .filter(!_.isNull).map(_.elements().asScala.map(_.asText()).toSeq.sorted)
-      val writerFeatures = Option(protocolJson.get("writerFeatures"))
-        .filter(!_.isNull).map(_.elements().asScala.map(_.asText()).toSeq.sorted)
-      val protocol = ProtocolInfo(
-        minReaderVersion = minReaderV,
-        minWriterVersion = minWriterV,
-        readerFeatures = readerFeatures.filter(_.nonEmpty),
-        writerFeatures = writerFeatures.filter(_.nonEmpty))
+      val meta = snapshot.snapshot.metadata
+      val protocol = ProtocolInfo.from(snapshot.snapshot.protocol)
 
       val deltaLogDir = tablePath.resolve("_delta_log")
       require(Files.isDirectory(deltaLogDir), s"Missing _delta_log at $tablePath")
@@ -66,11 +55,12 @@ object TableInfoWriter {
 
       val numCommits = commitFiles.size
 
-      // Count actions and remove actions in a single pass over each commit.
+      // Count actions and remove actions in a single pass over each commit, via the typed log.
       val (numActions, numRemoveFiles) = commitFiles.foldLeft((0L, 0L)) {
         case ((actions, removes), f) =>
-          val lines = Files.readAllLines(f).asScala
-          (actions + lines.size, removes + lines.count(_.startsWith("""{"remove""")))
+          val version = f.getFileName.toString.stripSuffix(".json").toLong
+          val as = CommitLog.read(tablePath, version)
+          (actions + as.size, removes + as.count(_.isInstanceOf[RemoveFile]))
       }
 
       val lastCrcVersion = listLog(_.map(_.getFileName.toString)
@@ -83,10 +73,9 @@ object TableInfoWriter {
       val (lastCheckpointVersion, numCheckpointFiles) = {
         val lastCheckpointPath = deltaLogDir.resolve("_last_checkpoint")
         if (Files.exists(lastCheckpointPath)) {
-          val cpNode = JsonUtil.mapper.readTree(Files.readAllBytes(lastCheckpointPath))
-          val ver = cpNode.get("version").asLong()
-          val numParts = Option(cpNode.get("parts")).map(_.asInt()).getOrElse(1)
-          (ver, numParts)
+          val cp = JsonUtil.mapper.readValue(
+            Files.readAllBytes(lastCheckpointPath), classOf[LastCheckpointInfo])
+          (cp.version, cp.parts.getOrElse(1L).toInt)
         } else {
           val cpFiles = listLog(_.map(_.getFileName.toString)
             .filter(n => n.contains("checkpoint") && n.endsWith(".parquet")).toSeq)
@@ -112,31 +101,34 @@ object TableInfoWriter {
         lastCrcVersion = lastCrcVersion,
         numCheckpointFiles = numCheckpointFiles)
 
-      val partCols = Option(metadataJson.get("partitionColumns"))
-        .filter(!_.isNull)
-        .map(_.elements().asScala.map(_.asText()).toSeq)
-        .getOrElse(Seq.empty)
+      val partCols = meta.partitionColumns
       val numDistinctPartitions = if (partCols.nonEmpty) {
         // Convert MAP to JSON string for distinct() since Spark doesn't support set ops on MAP types
         snapshot.allFiles.select(to_json(col("partitionValues"))).distinct().count()
       } else 0L
 
+      // Liquid clustering columns, read from DESCRIBE DETAIL (0 when the table isn't clustered).
+      // Guarded for older Delta that doesn't expose the `clusteringColumns` column.
+      val clusteringCols = {
+        val detail = spark.sql(s"DESCRIBE DETAIL delta.`${tablePath.toAbsolutePath}`").head()
+        if (detail.schema.fieldNames.contains("clusteringColumns")) {
+          // Spark returns a mutable ArraySeq for array columns; collection.Seq accepts it.
+          Option(detail.getAs[scala.collection.Seq[String]]("clusteringColumns"))
+            .map(_.size).getOrElse(0)
+        } else 0
+      }
+
       val dataLayout = DataLayoutInfo(
-        numClusteringColumns = 0,
+        numClusteringColumns = clusteringCols,
         numPartitionColumns = partCols.size,
         numDistinctPartitions = numDistinctPartitions)
 
-      val properties = Option(metadataJson.get("configuration"))
-        .filter(!_.isNull)
-        .map { node =>
-          node.fields().asScala.map(e => e.getKey -> e.getValue.asText()).toMap
-        }
-        .getOrElse(Map.empty)
+      val properties = meta.configuration
 
       val tableInfo = TableInfo(
         name = name,
         description = description,
-        schema = schemaObj,
+        schema = meta.schema,
         protocol = protocol,
         logInfo = logInfo,
         properties = properties,

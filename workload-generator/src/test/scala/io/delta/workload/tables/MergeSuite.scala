@@ -50,7 +50,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id >= 4", name = "filter_new_rows")
+    readSpec(t, predicate = "id >= 4", name = Some("filter_new_rows"))
     snapshotSpec(t)
   }
 
@@ -63,7 +63,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2", name = "filter_updated")
+    readSpec(t, predicate = "id = 2", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -89,7 +89,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2", name = "filter_id_2")
+    readSpec(t, predicate = "id = 2", name = Some("filter_id_2"))
     snapshotSpec(t)
   }
 
@@ -167,7 +167,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED AND t.score >= 10 THEN UPDATE SET status = s.status, score = s.score""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "status = 'high'", name = "filter_high")
+    readSpec(t, predicate = "status = 'high'", name = Some("filter_high"))
     snapshotSpec(t)
   }
 
@@ -233,7 +233,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "active = true", name = "filter_active")
+    readSpec(t, predicate = "active = true", name = Some("filter_active"))
     snapshotSpec(t)
   }
 
@@ -248,7 +248,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "price > 30.00", name = "filter_price")
+    readSpec(t, predicate = "price > 30.00", name = Some("filter_price"))
     snapshotSpec(t)
   }
 
@@ -277,7 +277,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "name = 'bob'", name = "filter_bob")
+    readSpec(t, predicate = "name = 'bob'", name = Some("filter_bob"))
     snapshotSpec(t)
   }
 
@@ -293,7 +293,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "value IS NOT NULL", name = "filter_not_null")
+    readSpec(t, predicate = "value IS NOT NULL", name = Some("filter_not_null"))
     snapshotSpec(t)
   }
 
@@ -356,7 +356,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "region = 'east'", name = "filter_east")
+    readSpec(t, predicate = "region = 'east'", name = Some("filter_east"))
     snapshotSpec(t)
   }
 
@@ -370,7 +370,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET region = s.region, amount = s.amount""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "region = 'west'", name = "filter_west")
+    readSpec(t, predicate = "region = 'west'", name = Some("filter_west"))
     snapshotSpec(t)
   }
 
@@ -386,7 +386,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "country = 'US' AND year = 2024", name = "filter_us_2024")
+    readSpec(t, predicate = "country = 'US' AND year = 2024", name = Some("filter_us_2024"))
     snapshotSpec(t)
   }
 
@@ -400,7 +400,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -414,7 +414,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED AND s.amount > 200 THEN UPDATE SET amount = s.amount
       WHEN NOT MATCHED AND s.amount >= 500 THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -427,7 +427,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED AND t.amount > 30 THEN DELETE
       WHEN MATCHED THEN UPDATE SET amount = s.amount""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -443,8 +443,8 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET name = s.name, score = s.score
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
-    readSpec(t, predicate = "score > 5000", name = "filterHighScore")
+    readSpec(t, name = Some("readAll"))
+    readSpec(t, predicate = "score > 5000", name = Some("filterHighScore"))
     snapshotSpec(t)
   }
 
@@ -459,7 +459,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED AND t.amount > 50 THEN UPDATE SET value = 'also', amount = s.amount
       WHEN MATCHED THEN UPDATE SET value = 'updated', amount = s.amount""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -478,7 +478,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -492,7 +492,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -507,7 +507,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -521,7 +521,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -535,7 +535,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2", name = "filter_updated")
+    readSpec(t, predicate = "id = 2", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -549,7 +549,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED AND s.amount > 50 THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 5", name = "filter_conditional_insert")
+    readSpec(t, predicate = "id = 5", name = Some("filter_conditional_insert"))
     snapshotSpec(t)
   }
 
@@ -563,7 +563,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2", name = "filter_updated")
+    readSpec(t, predicate = "id = 2", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -578,7 +578,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "value = 9999", name = "filter_updated")
+    readSpec(t, predicate = "value = 9999", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -593,7 +593,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 3", name = "filter_deleted")
+    readSpec(t, predicate = "id = 3", name = Some("filter_deleted"))
     snapshotSpec(t)
   }
 
@@ -609,7 +609,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       ON t.id = s.id WHEN MATCHED THEN UPDATE SET value = s.value WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 5", name = "filter_last_merge")
+    readSpec(t, predicate = "id = 5", name = Some("filter_last_merge"))
     snapshotSpec(t)
   }
 
@@ -638,7 +638,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "part = 'y'", name = "filter_part_y")
+    readSpec(t, predicate = "part = 'y'", name = Some("filter_part_y"))
     snapshotSpec(t)
   }
 
@@ -666,7 +666,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 3", name = "filter_new")
+    readSpec(t, predicate = "id = 3", name = Some("filter_new"))
     snapshotSpec(t)
   }
 
@@ -679,7 +679,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "value = 'z'", name = "filter_updated")
+    readSpec(t, predicate = "value = 'z'", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -693,7 +693,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id >= 10", name = "filter_new")
+    readSpec(t, predicate = "id >= 10", name = Some("filter_new"))
     snapshotSpec(t)
   }
 
@@ -735,7 +735,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id IS NULL", name = "filter_nulls")
+    readSpec(t, predicate = "id IS NULL", name = Some("filter_nulls"))
     snapshotSpec(t)
   }
 
@@ -748,7 +748,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET amount = s.amount * 2""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "amount = 20", name = "filter_doubled")
+    readSpec(t, predicate = "amount = 20", name = Some("filter_doubled"))
     snapshotSpec(t)
   }
 
@@ -762,7 +762,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.src_value""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2", name = "filter_updated")
+    readSpec(t, predicate = "id = 2", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -776,7 +776,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2 AND amount = 999", name = "filter_updated")
+    readSpec(t, predicate = "id = 2 AND amount = 999", name = Some("filter_updated"))
     snapshotSpec(t)
   }
 
@@ -809,7 +809,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
         WHEN MATCHED THEN UPDATE SET value = s.value""")
     } catch { case _: Exception => /* expected failure */ }
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 
@@ -879,7 +879,7 @@ class MergeSuite extends WorkloadTestSuite("merge") {
       WHEN MATCHED THEN UPDATE SET value = s.value
       WHEN NOT MATCHED THEN INSERT *""")
     val t = registerTable("tbl")
-    readSpec(t, name = "readAll")
+    readSpec(t, name = Some("readAll"))
     snapshotSpec(t)
   }
 

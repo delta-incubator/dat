@@ -21,9 +21,16 @@ import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters._
 
 import org.apache.commons.io.FileUtils
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructField, StructType}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
+
+import io.delta.workload.capture.{ReadCapture, SnapshotCapture}
+import io.delta.workload.engine.RowComparison
+import io.delta.workload.json.JsonUtil
+import io.delta.workload.log.{AddFile, Metadata}
+import io.delta.workload.model._
 
 class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with WorkloadOps {
 
@@ -100,8 +107,8 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
           if (!force && Files.exists(testOutputDir.resolve("table_info.json"))) {
             results += TestResult(ts.outputName, passed = true, Seq.empty, skipped = true)
           } else {
-            val result = WorkloadGenerator.generateTable(_spark, ts, outputDir)
-            results += TestResult(result.testId, passed = true, Seq.empty)
+            val testId = WorkloadGenerator.generateTable(_spark, ts, outputDir)
+            results += TestResult(testId, passed = true, Seq.empty)
           }
         }
       }
@@ -150,12 +157,11 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
     assertPassed(results)
 
     // Verify expected data matches actual table
-    val actual = JsonUtil.toRowMultiset(
-      spark.read.format("delta").load(delta("t_r1").toString))
-    val expectedData = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r1").resolve("t_r1_read/expected_data").toString))
-    assert(actual == expectedData, "Expected data should match actual table data")
-    assert(actual.values.sum == 3, "Should have 3 rows")
+    val actual = spark.read.format("delta").load(delta("t_r1").toString)
+    val expectedData = spark.read.parquet(
+      expected("t_r1").resolve("t_r1_read_all/expected_data").toString)
+    RowComparison.assertRowsEqual(expectedData, actual, "t_r1")
+    assert(actual.count() == 3, "Should have 3 rows")
   }
 
   test("read: predicate filters rows correctly") {
@@ -166,9 +172,9 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t, predicate = "id > 3")
     }
     assertPassed(results)
-    val expectedData = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r2").resolve("t_r2_read_id_gt_3/expected_data").toString))
-    assert(expectedData.values.sum == 2, "Predicate id > 3 should yield 2 rows")
+    val expectedData = spark.read.parquet(
+      expected("t_r2").resolve("t_r2_read_id_gt_3/expected_data").toString).count()
+    assert(expectedData == 2, "Predicate id > 3 should yield 2 rows")
   }
 
   test("read: version time travel") {
@@ -183,15 +189,15 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t)
     }
     assertPassed(results)
-    val v1 = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r3").resolve("t_r3_read_v1/expected_data").toString))
-    val v2 = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r3").resolve("t_r3_read_v2/expected_data").toString))
-    val latest = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r3").resolve("t_r3_read/expected_data").toString))
-    assert(v1.values.sum == 1, "Version 1 should have 1 row")
-    assert(v2.values.sum == 2, "Version 2 should have 2 rows")
-    assert(latest.values.sum == 3, "Latest should have 3 rows")
+    val v1 = spark.read.parquet(
+      expected("t_r3").resolve("t_r3_read_v1/expected_data").toString).count()
+    val v2 = spark.read.parquet(
+      expected("t_r3").resolve("t_r3_read_v2/expected_data").toString).count()
+    val latest = spark.read.parquet(
+      expected("t_r3").resolve("t_r3_read_all/expected_data").toString).count()
+    assert(v1 == 1, "Version 1 should have 1 row")
+    assert(v2 == 2, "Version 2 should have 2 rows")
+    assert(latest == 3, "Latest should have 3 rows")
   }
 
   test("read: column projection") {
@@ -199,7 +205,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       sql("CREATE TABLE tbl (a INT, b STRING, c DOUBLE) USING delta")
       sql("INSERT INTO tbl VALUES (1, 'x', 1.1), (2, 'y', 2.2)")
       val t = registerTable("tbl")
-      readSpec(t, columns = Seq("a", "c"))
+      readSpec(t, columns = Some(Seq("a", "c")))
     }
     assertPassed(results)
     val df = spark.read.parquet(
@@ -218,13 +224,12 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t)
     }
     assertPassed(results)
-    val filtered = JsonUtil.toRowMultiset(
-      spark.read.parquet(
-        expected("t_r5").resolve("t_r5_read_region_eq_us/expected_data").toString))
-    val all = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r5").resolve("t_r5_read/expected_data").toString))
-    assert(filtered.values.sum == 2, "Filtered should have 2 rows")
-    assert(all.values.sum == 4, "All should have 4 rows")
+    val filtered = spark.read.parquet(
+      expected("t_r5").resolve("t_r5_read_region_eq_us/expected_data").toString).count()
+    val all = spark.read.parquet(
+      expected("t_r5").resolve("t_r5_read_all/expected_data").toString).count()
+    assert(filtered == 2, "Filtered should have 2 rows")
+    assert(all == 4, "All should have 4 rows")
   }
 
   test("read: data skipping with multi-file predicates") {
@@ -245,12 +250,12 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
     assertPassed(results)
 
     // Verify exact row counts for each predicate
-    def rowCount(specSuffix: String): Int = {
+    def rowCount(specSuffix: String): Long = {
       val p = expected("t_r_skip").resolve(s"t_r_skip_$specSuffix/expected_data")
-      if (!Files.exists(p)) 0
-      else JsonUtil.toRowMultiset(spark.read.parquet(p.toString)).values.sum
+      if (!Files.exists(p)) 0L
+      else spark.read.parquet(p.toString).count()
     }
-    assert(rowCount("read") == 9, "All rows")
+    assert(rowCount("read_all") == 9, "All rows")
     assert(rowCount("read_id_lt_5") == 3, "id < 5 → 3 rows from file 1")
     assert(rowCount("read_id_gte_100") == 3, "id >= 100 → 3 rows from file 3")
     assert(rowCount("read_id_gt_3_and_id_lt_100") == 3, "3 < id < 100 → 3 rows from file 2")
@@ -280,9 +285,9 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t)
     }
     assertPassed(results)
-    val data = JsonUtil.toRowMultiset(
-      spark.read.parquet(expected("t_r7").resolve("t_r7_read/expected_data").toString))
-    assert(data.values.sum == 3)
+    val data = spark.read.parquet(
+      expected("t_r7").resolve("t_r7_read_all/expected_data").toString).count()
+    assert(data == 3)
   }
 
   test("read: spec JSON has correct structure") {
@@ -290,7 +295,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       sql("CREATE TABLE tbl (id INT) USING delta")
       sql("INSERT INTO tbl VALUES (1)")
       val t = registerTable("tbl")
-      readSpec(t, predicate = "id > 0", version = 1, columns = Seq("id"))
+      readSpec(t, predicate = "id > 0", version = 1, columns = Some(Seq("id")))
     }
     assertPassed(results)
     val spec = readSpec("t_r8", "read_v1_id_gt_0_cols_id")
@@ -314,18 +319,16 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
     }
     assertPassed(results)
     val spec = JsonUtil.readReadSpec(specs("t_e1").resolve("t_e1_read_v999.json"))
-    assert(spec.version.contains(999L))
-    (spec.expected, spec.expectedError) match {
-      case (_, Some(err)) =>
+    assert(spec.query.version.contains(999L))
+    spec.expectation match {
+      case Failed(err) =>
         // Error code can vary depending on the code path
         assert(err.errorCode.nonEmpty, "Error code should not be empty")
         // Error message or code should reference the bad version
         assert(err.errorMessage.contains("999") || err.errorCode.contains("Version"),
           s"Error should reference version 999, got code: ${err.errorCode}, msg: ${err.errorMessage}")
-      case (Some(_), _) =>
+      case Succeeded(_) =>
         fail("Expected error spec for nonexistent version")
-      case _ =>
-        fail("Spec should have either expected or expectedError")
     }
   }
 
@@ -415,7 +418,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
     }
     assertPassed(results)
     val spec = readSpec("t_dummy", "snapshot")
-    assert(spec.has("expectedError"), "Should produce error spec for empty log")
+    assert(spec.has("error"), "Should produce error spec for empty log")
     assert(!spec.has("expected") || spec.get("expected").isNull,
       "Should not have success data for empty log")
   }
@@ -433,15 +436,15 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t)
     }
     // Tamper: replace expected_data with wrong rows
-    val dataDir = expected("t_v1").resolve("t_v1_read/expected_data")
+    val dataDir = expected("t_v1").resolve("t_v1_read_all/expected_data")
     org.apache.commons.io.FileUtils.deleteDirectory(dataDir.toFile)
     spark.sql("SELECT 100 AS id UNION ALL SELECT 200")
       .write.parquet(dataDir.toString)
 
-    val specPath = specs("t_v1").resolve("t_v1_read.json")
+    val specPath = specs("t_v1").resolve("t_v1_read_all.json")
     intercept[RuntimeException] {
       ReadCapture.validateFromSpec(
-        spark, delta("t_v1"), expected("t_v1").resolve("t_v1_read"), specPath)
+        spark, delta("t_v1"), expected("t_v1").resolve("t_v1_read_all"), specPath)
     }
   }
 
@@ -466,29 +469,76 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
     }
   }
 
-  test("validation: assertMultisetsEqual reports count mismatches") {
+  private def strDf(values: String*): DataFrame =
+    spark.createDataFrame(values.map(Row(_)).asJava, StructType(Seq(StructField("x", StringType))))
+
+  test("validation: assertRowsEqual reports extra rows") {
     val ex = intercept[RuntimeException] {
-      JsonUtil.assertMultisetsEqual(
-        Map("r" -> 2, "s" -> 1), Map("r" -> 3, "s" -> 1), "spec")
+      RowComparison.assertRowsEqual(strDf("a"), strDf("a", "c"), "spec")
     }
-    assert(ex.getMessage.contains("Count mismatches"))
-    assert(ex.getMessage.contains("expected 2x, got 3x"))
+    assert(ex.getMessage.contains("Extra rows"))
   }
 
-  test("validation: assertMultisetsEqual reports missing rows") {
+  test("validation: assertRowsEqual reports missing rows") {
     val ex = intercept[RuntimeException] {
-      JsonUtil.assertMultisetsEqual(
-        Map("a" -> 1, "b" -> 1), Map("a" -> 1), "spec")
+      RowComparison.assertRowsEqual(strDf("a", "b"), strDf("a"), "spec")
     }
     assert(ex.getMessage.contains("Missing rows"))
   }
 
-  test("validation: assertMultisetsEqual reports extra rows") {
+  test("validation: assertRowsEqual catches duplicate-count differences") {
+    // Bag semantics: expected has r twice, actual three times, so the extra copy is flagged.
     val ex = intercept[RuntimeException] {
-      JsonUtil.assertMultisetsEqual(
-        Map("a" -> 1), Map("a" -> 1, "c" -> 1), "spec")
+      RowComparison.assertRowsEqual(strDf("r", "r", "s"), strDf("r", "r", "r", "s"), "spec")
     }
     assert(ex.getMessage.contains("Extra rows"))
+  }
+
+  test("validation: assertRowsEqual catches column type drift") {
+    val intDf = spark.createDataFrame(
+      Seq(Row(1)).asJava, StructType(Seq(StructField("x", IntegerType))))
+    val longDf = spark.createDataFrame(
+      Seq(Row(1L)).asJava, StructType(Seq(StructField("x", LongType))))
+    val ex = intercept[RuntimeException] {
+      RowComparison.assertRowsEqual(intDf, longDf, "spec")
+    }
+    assert(ex.getMessage.contains("schema mismatch"))
+  }
+
+  test("validation: assertRowsEqual treats maps with different key order as equal") {
+    val expected = spark.sql("SELECT map('x', 1, 'y', 2) AS m")
+    val actual = spark.sql("SELECT map('y', 2, 'x', 1) AS m")
+    RowComparison.assertRowsEqual(expected, actual, "map_order") // must not throw
+  }
+
+  test("validation: assertRowsEqual catches a genuine map difference") {
+    val expected = spark.sql("SELECT map('x', 1, 'y', 2) AS m")
+    val actual = spark.sql("SELECT map('x', 1, 'y', 99) AS m")
+    intercept[RuntimeException] { RowComparison.assertRowsEqual(expected, actual, "map_diff") }
+  }
+
+  test("validation: assertRowsEqual treats variants with different field order as equal") {
+    val expected = spark.sql("""SELECT parse_json('{"a":1,"b":2}') AS v""")
+    val actual = spark.sql("""SELECT parse_json('{"b":2,"a":1}') AS v""")
+    RowComparison.assertRowsEqual(expected, actual, "variant_order") // must not throw
+  }
+
+  test("validation: assertRowsEqual handles MAP<STRING,VARIANT> order-insensitively") {
+    // Map values are canonicalized before array_sort, so the variant-valued map reaches exceptAll
+    // without an analysis error and compares key-order-insensitively.
+    val expected = spark.sql("""SELECT map('a', parse_json('1'), 'b', parse_json('"x"')) AS m""")
+    val actual = spark.sql("""SELECT map('b', parse_json('"x"'), 'a', parse_json('1')) AS m""")
+    RowComparison.assertRowsEqual(expected, actual, "map_variant") // must not throw
+  }
+
+  test("validation: assertRowsEqual recurses into array<struct<map>>") {
+    val expected = spark.sql("SELECT array(named_struct('m', map('x', 1, 'y', 2))) AS a")
+    val actual = spark.sql("SELECT array(named_struct('m', map('y', 2, 'x', 1))) AS a")
+    RowComparison.assertRowsEqual(expected, actual, "nested") // must not throw
+  }
+
+  test("validation: assertRowsEqual passes on empty inputs") {
+    RowComparison.assertRowsEqual(strDf(), strDf(), "empty") // must not throw
   }
 
   test("validation: tampered snapshot metadata caught by SnapshotCapture.validate") {
@@ -520,14 +570,96 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t)
     }
     // Tamper: append extra rows to expected_data
-    val dataDir = expected("t_v7").resolve("t_v7_read/expected_data")
+    val dataDir = expected("t_v7").resolve("t_v7_read_all/expected_data")
     spark.sql("SELECT 50 AS id UNION ALL SELECT 51")
       .write.mode("append").parquet(dataDir.toString)
 
-    val specPath = specs("t_v7").resolve("t_v7_read.json")
+    val specPath = specs("t_v7").resolve("t_v7_read_all.json")
     intercept[RuntimeException] {
       ReadCapture.validateFromSpec(
-        spark, delta("t_v7"), expected("t_v7").resolve("t_v7_read"), specPath)
+        spark, delta("t_v7"), expected("t_v7").resolve("t_v7_read_all"), specPath)
+    }
+  }
+
+  // ---- Per-field snapshot mismatch + write-validation leniency boundaries ----
+  // Validation correctness is critical: each compared metadata field must be caught, and the
+  // write-derived leniency (which tolerates a replay's fresh ids) must NOT mask real differences.
+
+  private def captureSnapshot(name: String): Unit = run(name) { _ =>
+    sql("CREATE TABLE tbl (id INT) USING delta")
+    sql("INSERT INTO tbl VALUES (1)")
+    snapshotSpec(registerTable("tbl"))
+  }
+
+  /** Edit the captured snapshot spec's `expected.metadata` node in place; returns the spec file. */
+  private def tamperSnapshotMeta(name: String)(
+      edit: com.fasterxml.jackson.databind.node.ObjectNode => Unit): Path = {
+    val specFile = specs(name).resolve(s"${name}_snapshot.json")
+    val node = JsonUtil.mapper.readTree(Files.readAllBytes(specFile))
+    edit(node.get("expected").get("metadata").asInstanceOf[com.fasterxml.jackson.databind.node.ObjectNode])
+    JsonUtil.writeSpec(specFile, JsonUtil.mapper.treeToValue(node, classOf[Any]))
+    specFile
+  }
+
+  test("validation: tampered snapshot partitionColumns caught") {
+    captureSnapshot("t_vpc")
+    val f = tamperSnapshotMeta("t_vpc") { _.putArray("partitionColumns").add("bogus") }
+    intercept[IllegalArgumentException] { SnapshotCapture.validateFromSpec(spark, delta("t_vpc"), f) }
+  }
+
+  test("validation: tampered snapshot configuration caught") {
+    captureSnapshot("t_vcfg")
+    val f = tamperSnapshotMeta("t_vcfg") { _.putObject("configuration").put("bogus.key", "1") }
+    intercept[IllegalArgumentException] { SnapshotCapture.validateFromSpec(spark, delta("t_vcfg"), f) }
+  }
+
+  test("validation: tampered snapshot id caught in read-only validation") {
+    captureSnapshot("t_vid")
+    val f = tamperSnapshotMeta("t_vid") { _.put("id", "00000000-0000-0000-0000-000000000000") }
+    intercept[IllegalArgumentException] { SnapshotCapture.validateFromSpec(spark, delta("t_vid"), f) }
+  }
+
+  test("validation: write-derived validation TOLERATES a fresh table id") {
+    captureSnapshot("t_vwid")
+    val f = tamperSnapshotMeta("t_vwid") { _.put("id", "00000000-0000-0000-0000-000000000000") }
+    // A replay mints id/name/description/createdTime fresh, so write-validation excludes them.
+    SnapshotCapture.validateFromSpec(spark, delta("t_vwid"), f, isWriteValidation = true)
+  }
+
+  test("validation: write-derived validation STILL CATCHES a real schema mismatch") {
+    captureSnapshot("t_vwsc")
+    val f = tamperSnapshotMeta("t_vwsc") { _.put("schemaString",
+      """{"type":"struct","fields":[{"name":"WRONG","type":"string","nullable":true,"metadata":{}}]}""") }
+    intercept[IllegalArgumentException] {
+      SnapshotCapture.validateFromSpec(spark, delta("t_vwsc"), f, isWriteValidation = true) }
+  }
+
+  test("validation: maxColumnId differs — caught read-only, tolerated for write-derived") {
+    captureSnapshot("t_vmci")
+    val f = tamperSnapshotMeta("t_vmci") { m =>
+      val cfg = Option(m.get("configuration")).map(_.asInstanceOf[com.fasterxml.jackson.databind.node.ObjectNode])
+        .getOrElse(m.putObject("configuration"))
+      cfg.put("delta.columnMapping.maxColumnId", "9") }
+    intercept[IllegalArgumentException] { SnapshotCapture.validateFromSpec(spark, delta("t_vmci"), f) }
+    // Replay mints maxColumnId fresh -> excluded for write-validation: must NOT throw.
+    SnapshotCapture.validateFromSpec(spark, delta("t_vmci"), f, isWriteValidation = true)
+  }
+
+  test("validation: tampered read expected_metadata (scanned file set) caught") {
+    run("t_vmeta") { _ =>
+      sql("CREATE TABLE tbl (id INT) USING delta")
+      sql("INSERT INTO tbl VALUES (1),(2)")
+      readSpec(registerTable("tbl"))
+    }
+    // Overwrite the recorded scanned-files with a bogus AddFile so the re-derived scan can't match.
+    val metaDir = expected("t_vmeta").resolve("t_vmeta_read_all/expected_metadata")
+    org.apache.commons.io.FileUtils.deleteDirectory(metaDir.toFile)
+    spark.createDataset(Seq("""{"add":{"path":"bogus","size":1}}"""))(org.apache.spark.sql.Encoders.STRING)
+      .toDF("action").write.parquet(metaDir.toString)
+    val specPath = specs("t_vmeta").resolve("t_vmeta_read_all.json")
+    intercept[RuntimeException] {
+      ReadCapture.validateFromSpec(
+        spark, delta("t_vmeta"), expected("t_vmeta").resolve("t_vmeta_read_all"), specPath)
     }
   }
 
@@ -588,18 +720,16 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t) // should produce error spec
     }
     assertPassed(results)
-    val spec = JsonUtil.readReadSpec(specs("t_corrupt").resolve("t_corrupt_read.json"))
-    (spec.expected, spec.expectedError) match {
-      case (_, Some(err)) =>
+    val spec = JsonUtil.readReadSpec(specs("t_corrupt").resolve("t_corrupt_read_all.json"))
+    spec.expectation match {
+      case Failed(err) =>
         // Error can be FileNotFoundException, SparkException wrapping it, or other file-related errors
         assert(err.errorCode.contains("FILE_NOT_FOUND") || err.errorCode.contains("FileNotFoundException")
           || err.errorCode.contains("FILE_NOT_EXIST") || err.errorCode.contains("SparkException")
           || err.errorCode.contains("AnalysisException") || err.errorMessage.contains("does not exist"),
           s"Error should be file-related, got code: ${err.errorCode}, msg: ${err.errorMessage}")
-      case (Some(_), _) =>
+      case Succeeded(_) =>
         fail("Should be an error spec after deleting data files")
-      case _ =>
-        fail("Spec should have either expected or expectedError")
     }
   }
 
@@ -609,8 +739,8 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       sql("INSERT INTO tbl VALUES (1),(2)")
       val t = registerTable("tbl")
       modifyCommitActions(t, version = 1) { actions =>
-        actions.map { case ("add", node) =>
-          node.put("stats", """{"numRecords":999}"""); ("add", node)
+        actions.map {
+          case a: AddFile => a.copy(stats = Some("""{"numRecords":999}"""))
           case other => other
         }
       }
@@ -639,7 +769,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       sql("INSERT INTO tbl VALUES (1),(2)")
       val t = registerTable("tbl")
       modifyCommitActions(t, version = 1) { actions =>
-        actions.filter(_._1 != "add")
+        actions.filterNot(_.isInstanceOf[AddFile])
       }
       snapshotSpec(t)
     }
@@ -660,11 +790,8 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       val t = registerTable("tbl")
       // Modify the metaData action in the CREATE commit (v0)
       modifyCommitActions(t, version = 0) { actions =>
-        actions.map { case ("metaData", node) =>
-          val configNode = node.get("configuration").asInstanceOf[
-            com.fasterxml.jackson.databind.node.ObjectNode]
-          configNode.put("test.property", "hello")
-          ("metaData", node)
+        actions.map {
+          case m: Metadata => m.copy(configuration = m.configuration + ("test.property" -> "hello"))
           case other => other
         }
       }
@@ -753,7 +880,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
   test("framework: zero-table test warns") {
     val results = run("t_fw3") { _ =>
       sql("CREATE TABLE tbl (id INT) USING delta")
-      // Never call registerTable() — should warn
+      // Never call registerTable(); should warn
     }
     assert(results.size == 1)
     assert(results.head.passed) // passes but with warning
