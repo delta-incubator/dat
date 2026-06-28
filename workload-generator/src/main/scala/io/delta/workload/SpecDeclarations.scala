@@ -22,6 +22,7 @@ import scala.collection.mutable
 
 import io.delta.workload.json.JsonUtil
 import io.delta.workload.model._
+import io.delta.workload.write.WriteSpecBuilder
 
 // ---------------------------------------------------------------------------
 // SpecRef: returned by spec declaration methods for optional assertions
@@ -76,6 +77,7 @@ private[workload] class TableDecl(
   val readSpecs = mutable.ArrayBuffer[ReadSpecConfig]()
   val snapshotSpecs = mutable.ArrayBuffer[SnapshotSpecConfig]()
   val mutations = mutable.ArrayBuffer[Path => Unit]()
+  var writeBuilder: Option[WriteSpecBuilder] = None
 }
 
 private[workload] case class ReadSpecConfig(

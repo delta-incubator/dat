@@ -26,6 +26,7 @@ import org.apache.spark.sql.SparkSession
 import io.delta.workload.capture.{ReadCapture, SnapshotCapture, TableInfoCapture}
 import io.delta.workload.json.JsonUtil
 import io.delta.workload.model._
+import io.delta.workload.validate.WorkloadValidator
 
 /**
  * Internal workload generation engine. Use [[WorkloadTestSuite]] as the public API:
@@ -117,6 +118,19 @@ object WorkloadGenerator {
       checkAssertion(rs, specsDir.resolve(s"$specName.json"))
     }
 
+    // For a write workload, emit a baseline unfiltered read of the final table. Its expected_data
+    // is the final-state row ground truth, validated against the replay, so the write spec's data
+    // is carried by an ordinary read spec.
+    if (ts.writeBuilder.isDefined && !readNames.contains(s"${dirName}_latest")) {
+      ReadCapture.capture(spark, dirName, destTablePath, testOutputDir, specsDir, name = "latest")
+      readNames += s"${dirName}_latest"
+    }
+
+    // Write spec: serialize the recorded commit history into specs/ + expected/<name>_write/.
+    ts.writeBuilder.foreach { builder =>
+      builder.buildSpec(spark, destTablePath, testOutputDir)
+    }
+
     // table_info.json. An intentionally-mutated table (corruption / deleted-log tests) may be
     // unreadable and so can't produce it; an unmutated table that fails here is a real bug, so
     // only a mutated table tolerates the failure.
@@ -126,6 +140,14 @@ object WorkloadGenerator {
     } catch {
       case e: Throwable if ts.mutations.nonEmpty =>
         System.err.println(s"WARN: skipping table_info.json for mutated table $dirName: ${e.getMessage}")
+    }
+
+    // Self-validate the write workload: the single WorkloadValidator replays the write spec into
+    // a fresh table and re-checks the write-derived read/snapshot specs against it.
+    ts.writeBuilder.foreach { _ =>
+      val result = WorkloadValidator.validateTestDir(spark, testOutputDir)
+      require(result.success,
+        s"Write spec validation FAILED for $dirName:\n  ${result.errors.mkString("\n  ")}")
     }
 
     // Repro placeholder

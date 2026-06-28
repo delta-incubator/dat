@@ -22,6 +22,7 @@ Exactly one of `expected` or `error` is present. The other is omitted (not `null
 - [Common Types](#common-types)
 - [Read Spec](#read-spec)
 - [Snapshot Spec](#snapshot-spec)
+- [Write Spec](#write-spec)
 - [table_info.json](#table_infojson)
 - [Expected Data Layout](#expected-data-layout)
 
@@ -342,6 +343,210 @@ These are the raw Delta protocol and metadata JSON structures — not simplified
     "errorCode": "DELTA_UNSUPPORTED_FEATURES_FOR_READ",
     "errorMessage": "Table requires reader feature 'unknownFeature' which is not supported"
   }
+}
+```
+
+---
+
+## Write Spec
+
+**Type:** `"write"`
+
+Tests Delta *writer* implementations: a portable, engine-agnostic recipe of `commits` to replay into a fresh table.
+
+It is **just another spec** — it lives at `specs/<name>_write.json` and dispatches by `type`. Its presence makes the whole directory *write-derived*: every read/snapshot spec there is validated against the table replayed from the write spec (not the captured `delta/` table). No per-spec pointer is needed; the decision is per directory.
+
+The write spec's own validation is **basic**: the replay must succeed and the final version must equal `commits.size - 1` (each commit advances the table by exactly one version). It carries no expected-rows artifact of its own. The final-state rows are checked by an auto-generated baseline `latest` read spec (see [Expected Data](#expected-data-1) below); per-version protocol/metadata by the snapshot spec(s).
+
+### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | `string` | yes | Always `"write"` |
+| `commits` | `WriteCommit[]` | yes | Ordered list of commits to replay |
+
+### WriteCommit
+
+Each commit represents a single Delta transaction. There are two categories: high-level operations (SQL semantics) and the low-level `commit` (raw Delta actions).
+
+#### High-Level Operations
+
+These map to SQL-like operations. The writer translates them to appropriate Delta actions.
+
+| Operation | Fields | Description |
+|-----------|--------|-------------|
+| `create_table` | `schema`, `partitionColumns?`, `properties?` | Create a new table with the given schema (`schema` is a Delta-JSON struct) |
+| `replace_table` | `schema`, `partitionColumns?`, `properties?`, `dataFiles?` | Replace the table's schema/partitioning/properties (and all data). With `dataFiles` it is a replace-as-select: a single commit that also writes the bundled data. |
+| `insert` | `dataFiles?` | Append the rows in the bundled Parquet data files |
+| `update` | `predicate`, `set` | Update rows matching `predicate`; `set` maps column → SQL expression |
+| `delete` | `predicate` | Delete rows matching `predicate` (SQL WHERE clause) |
+| `evolve_schema` | `addColumns?`, `renameColumns?`, `dropColumns?` | Modify table schema. `addColumns` entries are `{name, type, nullable}`; `renameColumns` maps old → new |
+| `update_properties` | `set?`, `remove?` | Modify table properties (`set` map, `remove` names) |
+
+The data for `insert` and `replace_table` is bundled as Parquet under `data/commit_N/` (the
+generator's authoring API accepts in-memory rows, but the spec always stores Parquet). A
+consumer replays by reading those files — `insert` appends them; `replace_table` performs a
+single replace-as-select from them.
+
+`RENAME COLUMN` / `DROP COLUMN` in `evolve_schema` require the table to have column mapping
+enabled (a Delta/Spark constraint).
+
+#### Low-Level Operation
+
+| Operation | Fields | Description |
+|-----------|--------|-------------|
+| `commit` | `schema?`, `tableProperties?`, `txn?`, `addFiles?`, `removeFiles?`, `addDomainMetadata?`, `removeDomainMetadata?` | Bundle raw Delta actions in one commit. Each `addFiles[]` entry's logical rows are bundled as Parquet (`dataFile`); a consumer writes them **through its own engine write path** (so column mapping, partitioning, and stats are handled — physical names/stats are not in the spec) and commits the resulting `AddFile`s alongside the `txn`/`DomainMetadata`/schema/property changes. `removeFiles[]` tombstone a file added by a prior low-level `commit`, referenced by that commit's ordinal (`addedAtCommit`); since the engine assigns paths per table, the consumer resolves the ordinal to its own table's path. Deletion vectors are out of scope. |
+
+### Low-level value types
+
+Value types referenced by the low-level `commit` operation. An `AddFileAction` carries a pointer to a Parquet of **logical** rows (full rows incl. partition columns); the consumer writes it through its own engine write path, so physical names, partitioning, and stats are derived per table, not stored.
+
+| Type | Field | Description |
+|------|-------|-------------|
+| `AddFileAction` | `dataFile` | Relative path under `data/commit_N/` to the Parquet of logical rows |
+| `AddFileAction` | `dataChange?` | Whether this is a data change (default true) |
+| `RemoveFileAction` | `addedAtCommit` | Ordinal (== table version) of the prior low-level `commit` that added the file(s) to tombstone; consumer resolves it to its own table's path(s) |
+| `RemoveFileAction` | `dataChange?` | Whether this is a data change (default true) |
+| `AppTxn` | `appId`, `version` | Application id and its monotonic transaction version for idempotent writes (`txn` action) |
+| `AddDomainMetadata` | `domain`, `configuration` | Domain name and its configuration payload |
+
+### Expected Data
+
+A write spec has **no expected-data artifact of its own**. The final table state is captured by an auto-generated baseline read spec named `latest` (file `specs/<name>_latest.json`, expected rows under `expected/<name>_latest/expected_data/`), which the generator emits for every write workload. That read is validated against the replayed table, so the final-state rows become consumer-validatable just like any other read.
+
+### Comparison Semantics
+
+The capture comes from one writer, so a consumer compares the replayed table against expectations *portably*, not byte-for-byte:
+
+- **rows** — checked by the baseline `latest` read spec: typed row equality, order-independent bag (schema must match by name and type).
+- **protocol** — checked by the snapshot spec(s): the replay must support at least the expected reader/writer versions and features (a stronger protocol is acceptable).
+- **configuration** — only the keys the spec's own commits declared: `create_table`/`replace_table` `properties` + `update_properties.set` minus `.remove` (`replace_table` resets the set); each present and equal, removed keys absent. Engine-injected defaults are ignored.
+- **schemaString** — equal with per-field column-mapping `physicalName`/`id` normalized out (minted per table); `partitionColumns` and `format` equal.
+
+The write spec itself only asserts that the replay succeeds and produces the expected number of versions (`finalVersion == commits.size - 1`).
+
+### Directory Structure
+
+```
+<test_name>/
+├── delta/                       # the captured table (for read-only validation)
+├── specs/
+│   ├── <test>_read*.json
+│   ├── <test>_latest.json       # auto baseline read of the final state
+│   ├── <test>_snapshot.json
+│   └── <test>_write.json        # the write spec — just another spec
+├── data/                        # Parquet referenced by write commits
+│   ├── commit_1/
+│   │   └── part-00000.parquet
+│   └── ...
+├── expected/
+│   ├── <test>_latest/           # final-state rows (baseline read)
+│   │   └── expected_data/
+│   └── <read_spec_name>/        # expected_data for each read spec
+│       └── expected_data/
+└── table_info.json
+```
+
+### Examples
+
+**High-level sequence (create, insert, delete, update):**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": false, "metadata": {} },
+          { "name": "status", "type": "string", "nullable": true, "metadata": {} }
+        ]
+      },
+      "properties": { "delta.enableDeletionVectors": "true" }
+    },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
+    { "operation": "delete", "predicate": "id > 100" },
+    {
+      "operation": "update",
+      "predicate": "status = 'pending'",
+      "set": { "status": "'active'" }
+    }
+  ]
+}
+```
+
+**Schema evolution (add column):**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": false, "metadata": {} }
+        ]
+      }
+    },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
+    {
+      "operation": "evolve_schema",
+      "addColumns": [ { "name": "email", "type": "string", "nullable": true } ]
+    },
+    { "operation": "insert", "dataFiles": ["data/commit_3/part-0000-def.parquet"] }
+  ]
+}
+```
+
+**Replace-as-select (replace schema + data in one commit):**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    { "operation": "create_table", "schema": { } },
+    { "operation": "insert", "dataFiles": ["data/commit_1/part-00000.parquet"] },
+    {
+      "operation": "replace_table",
+      "schema": {
+        "type": "struct",
+        "fields": [
+          { "name": "id", "type": "integer", "nullable": true, "metadata": {} },
+          { "name": "label", "type": "string", "nullable": true, "metadata": {} }
+        ]
+      },
+      "dataFiles": ["data/commit_2/part-00000.parquet"]
+    }
+  ]
+}
+```
+
+**Low-level commit (addFiles/removeFiles + txn + domainMetadata):**
+
+```json
+{
+  "type": "write",
+  "commits": [
+    {
+      "operation": "create_table",
+      "schema": { },
+      "properties": { "delta.feature.domainMetadata": "supported" }
+    },
+    { "operation": "commit", "addFiles": [ { "dataFile": "data/commit_1/add_0.parquet" } ] },
+    {
+      "operation": "commit",
+      "txn": { "appId": "streaming-job-1", "version": 42 },
+      "addFiles": [ { "dataFile": "data/commit_2/add_0.parquet" } ],
+      "removeFiles": [ { "addedAtCommit": 1 } ],
+      "addDomainMetadata": [
+        { "domain": "myApp.config", "configuration": "{\"version\": 1}" }
+      ]
+    }
+  ]
 }
 ```
 
