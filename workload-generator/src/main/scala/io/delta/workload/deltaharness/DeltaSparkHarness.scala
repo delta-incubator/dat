@@ -16,21 +16,15 @@
 
 package io.delta.workload.deltaharness
 
-import java.nio.file.{Files, Path, StandardCopyOption}
-
 import scala.collection.mutable
-import scala.jdk.CollectionConverters._
 
-import org.apache.commons.io.FileUtils
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.delta.{DeltaLog, DeltaOperations, Snapshot => DeltaSnapshot}
 import org.apache.spark.sql.delta.actions.{Action, AddFile, DomainMetadata, FileAction, SetTransaction}
 // Hide Spark's types.Metadata so the unqualified `Metadata` is this package's typed case class.
 import org.apache.spark.sql.types.{Metadata => _, _}
 
-import io.delta.workload.json.JsonUtil
-
-class DeltaSparkHarness extends DeltaHarness {
+class DeltaSparkHarness extends SparkRowMaterializer {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
     DeltaLog.clearCache()
     new DeltaSparkLogView(DeltaLog.forTable(spark, tablePath))
@@ -85,81 +79,6 @@ class DeltaSparkHarness extends DeltaHarness {
     val snapshot = version.map(log.getSnapshotAt).getOrElse(log.update())
     snapshot.snapshot.metadata.schema
   }
-
-  override def writeRows(
-      spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]], dest: Path): Unit = {
-    val sparkRows = rows.map { r =>
-      Row.fromSeq(schema.fields.map(f => coerce(r.get(f.name), f.dataType)).toSeq)
-    }
-    val tmp = Files.createTempDirectory("row-parquet")
-    try {
-      spark.createDataFrame(sparkRows.asJava, schema)
-        .coalesce(1).write.mode("overwrite").parquet(tmp.toString)
-      val part = Files.list(tmp).iterator().asScala.find { p =>
-        val n = p.getFileName.toString
-        n.endsWith(".parquet") && !n.startsWith(".")
-      }.getOrElse(throw new IllegalStateException(s"no parquet part-file written under $tmp"))
-      Files.createDirectories(dest.getParent)
-      Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING)
-    } finally {
-      try FileUtils.deleteDirectory(tmp.toFile) catch { case _: Throwable => }
-    }
-  }
-
-  /**
-   * Coerce a row's value to the column's Spark type. `None`/`null` -> SQL NULL. Unknown types
-   * fail loud rather than passing the raw value through: a silent passthrough that Spark happens
-   * to accept could write a wrong-but-symmetric value (wrong on both capture AND replay), which
-   * the row comparison would not catch — a false pass.
-   */
-  private def coerce(value: Option[Any], dataType: DataType): Any =
-    value.flatMap(Option(_)) match {
-      case None => null
-      case Some(v) => dataType match {
-        case _: IntegerType => v.asInstanceOf[Number].intValue()
-        case _: LongType => v.asInstanceOf[Number].longValue()
-        case _: ShortType => v.asInstanceOf[Number].shortValue()
-        case _: ByteType => v.asInstanceOf[Number].byteValue()
-        case _: DoubleType => v.asInstanceOf[Number].doubleValue()
-        case _: FloatType => v.asInstanceOf[Number].floatValue()
-        case _: BooleanType => v.asInstanceOf[Boolean]
-        case _: StringType => v.toString
-        case _: DateType => v match {
-          case s: String => java.sql.Date.valueOf(s)
-          case d: java.sql.Date => d
-          case n: Number => new java.sql.Date(n.longValue())
-          case _ => unsupported(v, dataType)
-        }
-        case _: TimestampType => v match {
-          case s: String => java.sql.Timestamp.valueOf(s)
-          case t: java.sql.Timestamp => t
-          case n: Number => new java.sql.Timestamp(n.longValue())
-          case _ => unsupported(v, dataType)
-        }
-        case _: TimestampNTZType => v match {
-          case s: String => java.time.LocalDateTime.parse(s.replace(' ', 'T'))
-          case ldt: java.time.LocalDateTime => ldt
-          case _ => unsupported(v, dataType)
-        }
-        case _: DecimalType => v match {
-          case bd: java.math.BigDecimal => bd
-          case bd: scala.math.BigDecimal => bd.bigDecimal
-          case s: String => new java.math.BigDecimal(s)
-          case n: Number => new java.math.BigDecimal(n.toString)
-          case _ => unsupported(v, dataType)
-        }
-        case _: BinaryType => v match {
-          case b: Array[Byte] => b
-          case s: String => java.util.Base64.getDecoder.decode(s)
-          case _ => unsupported(v, dataType)
-        }
-        case _ => unsupported(v, dataType)
-      }
-    }
-
-  private def unsupported(v: Any, dataType: DataType): Nothing =
-    throw new IllegalArgumentException(
-      s"coerce: unsupported value '$v' (${v.getClass.getName}) for column type $dataType")
 }
 
 private class DeltaSparkLogView(inner: DeltaLog) extends LogView {

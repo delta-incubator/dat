@@ -4,10 +4,12 @@
 #   - "inser": camelCase split of "INSERTs" (INSER + Ts), correct as-is
 #   - "caf": bare token left by the "é" escape in the "café" Unicode test data
 #   - "tpe": idiomatic Scala name for a "type" parameter ("type" is reserved)
+#   - "mis": the "mis-" prefix (mis-homed, mis-resolve) split at the hyphen
 explicits = "explicits"
 inser = "inser"
 caf = "caf"
 tpe = "tpe"
+mis = "mis"
 
 [default.extend-identifiers]
 # "typeSer": abbreviation of "type serializer" (typos reads "Ser" as "Set")

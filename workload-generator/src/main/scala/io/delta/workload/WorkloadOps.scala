@@ -18,8 +18,6 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path}
 
-import scala.collection.IterableOnce
-
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.StructType
@@ -150,7 +148,7 @@ trait WorkloadOps {
       schema: StructType,
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty,
-      rows: IterableOnce[Map[String, Any]] = Seq.empty): Unit = {
+      rows: Iterable[Map[String, Any]] = Seq.empty): Unit = {
     val ctx = WorkloadContext.current
     val rowSeq = rows.iterator.toSeq
     if (rowSeq.nonEmpty) {
@@ -186,7 +184,7 @@ trait WorkloadOps {
    * it produces no commit, so recording it would both desync the commit-index/version mapping
    * and let the validator pass a spec with nothing to validate.
    */
-  def insertOp(w: WriteHandle, rows: IterableOnce[Map[String, Any]]): Unit = {
+  def insertOp(w: WriteHandle, rows: Iterable[Map[String, Any]]): Unit = {
     val ctx = WorkloadContext.current
     val rowSeq = rows.iterator.toSeq
     require(rowSeq.nonEmpty, "insertOp requires at least one row")

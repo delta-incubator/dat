@@ -18,7 +18,7 @@ package io.delta.workload.engine
 
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StringType, StructType, VariantType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StringType, StructType}
 
 // =============================================================================
 // Row equality
@@ -81,9 +81,9 @@ object RowComparison {
     case at: ArrayType => transform(c, x => canonicalizeCol(x, at.elementType))
     case st: StructType =>
       struct(st.fields.map(f => canonicalizeCol(c.getField(f.name), f.dataType).as(f.name)): _*)
-    case _: VariantType =>
-      // Cast to string renders variant as JSON with object fields in alphabetical order, so
-      // logically equal variants compare equal even when their stored bytes differ by key order.
+    // Casting to string renders variant as JSON with object fields in alphabetical order, so
+    // logically equal variants compare equal even when their stored bytes differ by key order.
+    case dt if dt.typeName == "variant" =>
       c.cast(StringType)
     case _ => c
   }
