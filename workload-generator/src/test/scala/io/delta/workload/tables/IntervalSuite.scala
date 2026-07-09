@@ -87,4 +87,66 @@ class IntervalSuite extends WorkloadTestSuite("intv") {
     snapshotSpec(t)
   }
 
+  test("009_interval_array") {
+    sql("""CREATE TABLE tbl (
+      id INT,
+      periods ARRAY<INTERVAL YEAR TO MONTH>,
+      durations ARRAY<INTERVAL DAY TO SECOND>
+    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    sql("""INSERT INTO tbl VALUES
+      (1,
+        array(INTERVAL '1-0' YEAR TO MONTH, INTERVAL '0-6' YEAR TO MONTH),
+        array(INTERVAL '0 01:00:00.000000' DAY TO SECOND,
+          INTERVAL '1 00:00:00.000000' DAY TO SECOND)),
+      (2,
+        array(INTERVAL '2-3' YEAR TO MONTH, CAST(NULL AS INTERVAL YEAR TO MONTH)),
+        array(CAST(NULL AS INTERVAL DAY TO SECOND),
+          INTERVAL '0 00:00:01.000000' DAY TO SECOND))""")
+    val t = registerTable("tbl")
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("010_interval_map_key") {
+    sql("""CREATE TABLE tbl (
+      id INT,
+      ym_labels MAP<INTERVAL YEAR TO MONTH, STRING>,
+      dt_labels MAP<INTERVAL DAY TO SECOND, STRING>
+    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    sql("""INSERT INTO tbl VALUES
+      (1,
+        map(INTERVAL '1-0' YEAR TO MONTH, 'one_year',
+          INTERVAL '0-6' YEAR TO MONTH, 'six_months'),
+        map(INTERVAL '0 01:00:00.000000' DAY TO SECOND, 'one_hour',
+          INTERVAL '1 00:00:00.000000' DAY TO SECOND, 'one_day')),
+      (2,
+        map(INTERVAL '2-3' YEAR TO MONTH, 'two_years_three_months'),
+        map(INTERVAL '0 00:00:01.000000' DAY TO SECOND, 'one_second'))""")
+    val t = registerTable("tbl")
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("011_interval_map_value") {
+    sql("""CREATE TABLE tbl (
+      id INT,
+      ym_values MAP<STRING, INTERVAL YEAR TO MONTH>,
+      dt_values MAP<STRING, INTERVAL DAY TO SECOND>
+    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    sql("""INSERT INTO tbl VALUES
+      (1,
+        map('primary', INTERVAL '1-0' YEAR TO MONTH,
+          'secondary', INTERVAL '0-6' YEAR TO MONTH),
+        map('primary', INTERVAL '0 01:00:00.000000' DAY TO SECOND,
+          'secondary', INTERVAL '1 00:00:00.000000' DAY TO SECOND)),
+      (2,
+        map('primary', INTERVAL '2-3' YEAR TO MONTH,
+          'missing', CAST(NULL AS INTERVAL YEAR TO MONTH)),
+        map('primary', CAST(NULL AS INTERVAL DAY TO SECOND),
+          'secondary', INTERVAL '0 00:00:01.000000' DAY TO SECOND))""")
+    val t = registerTable("tbl")
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
 }
