@@ -1,0 +1,90 @@
+/*
+ * Copyright (2025) The Delta Lake Project Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package io.delta.workload.tables
+
+import io.delta.workload.WorkloadTestSuite
+
+/**
+ * Interval type coverage.
+ */
+class IntervalSuite extends WorkloadTestSuite("intv") {
+
+  test("006_interval_nulls") {
+    sql("""CREATE TABLE tbl (
+      id INT,
+      period INTERVAL YEAR TO MONTH,
+      duration INTERVAL DAY TO SECOND
+    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    sql("""INSERT INTO tbl VALUES
+      (1,
+        INTERVAL '1-2' YEAR TO MONTH, INTERVAL '3 04:05:06.000007' DAY TO SECOND),
+      (2, NULL, INTERVAL '0 00:00:01.000000' DAY TO SECOND),
+      (3, INTERVAL '2-0' YEAR TO MONTH, NULL),
+      (4, NULL, NULL)""")
+    val t = registerTable("tbl")
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("007_interval_mixed_types") {
+    sql("""CREATE TABLE tbl (
+      id INT,
+      label STRING,
+      active BOOLEAN,
+      amount DECIMAL(10,2),
+      period INTERVAL YEAR TO MONTH,
+      duration INTERVAL DAY TO SECOND
+    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    sql("""INSERT INTO tbl VALUES
+      (1, 'alpha', true, 12.34,
+        INTERVAL '1-0' YEAR TO MONTH, INTERVAL '0 01:02:03.000004' DAY TO SECOND),
+      (2, 'beta', false, -56.78,
+        INTERVAL '0-6' YEAR TO MONTH, INTERVAL '2 00:00:00.000000' DAY TO SECOND),
+      (3, 'gamma', true, 0.00,
+        INTERVAL '3-3' YEAR TO MONTH, INTERVAL '0 00:00:00.000001' DAY TO SECOND)""")
+    val t = registerTable("tbl")
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+  test("008_interval_nested_struct") {
+    sql("""CREATE TABLE tbl (
+      id INT,
+      info STRUCT<
+        label: STRING,
+        period: INTERVAL YEAR TO MONTH,
+        duration: INTERVAL DAY TO SECOND>
+    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    sql("""INSERT INTO tbl VALUES
+      (1, named_struct(
+        'label', 'both',
+        'period', INTERVAL '1-1' YEAR TO MONTH,
+        'duration', INTERVAL '0 02:00:00.000000' DAY TO SECOND)),
+      (2, named_struct(
+        'label', 'null_period',
+        'period', CAST(NULL AS INTERVAL YEAR TO MONTH),
+        'duration', INTERVAL '1 00:00:00.000000' DAY TO SECOND)),
+      (3, named_struct(
+        'label', 'null_duration',
+        'period', INTERVAL '0-3' YEAR TO MONTH,
+        'duration', CAST(NULL AS INTERVAL DAY TO SECOND)))""")
+    val t = registerTable("tbl")
+    readSpec(t, name = "read_all")
+    snapshotSpec(t)
+  }
+
+}
