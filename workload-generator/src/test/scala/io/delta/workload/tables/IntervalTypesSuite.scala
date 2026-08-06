@@ -23,9 +23,8 @@ import io.delta.workload.WorkloadTestSuite
  */
 class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
 
-  test("intv_001_interval_ym_basic") {
-    sql("""CREATE TABLE tbl (id INT, period INTERVAL YEAR TO MONTH) USING delta
-      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+  test("001_interval_ym_basic") {
+    sql("CREATE TABLE tbl (id INT, period INTERVAL YEAR TO MONTH) USING delta")
     sql("INSERT INTO tbl VALUES (1, INTERVAL '1-6' YEAR TO MONTH)")
     sql("""INSERT INTO tbl VALUES (2, INTERVAL '2-3' YEAR TO MONTH),(3, INTERVAL '0-9' YEAR TO
       MONTH)""")
@@ -34,9 +33,8 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
     snapshotSpec(t)
   }
 
-  test("intv_002_interval_dt_basic") {
-    sql("""CREATE TABLE tbl (id INT, duration INTERVAL DAY TO SECOND) USING delta
-      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+  test("002_interval_dt_basic") {
+    sql("CREATE TABLE tbl (id INT, duration INTERVAL DAY TO SECOND) USING delta")
     sql("INSERT INTO tbl VALUES (1, INTERVAL '1 02:30:00' DAY TO SECOND)")
     sql("""INSERT INTO tbl VALUES (2, INTERVAL '3 06:45:30' DAY TO SECOND),(3, INTERVAL '0 00:15:00'
       DAY TO SECOND)""")
@@ -45,9 +43,9 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
     snapshotSpec(t)
   }
 
-  test("intv_003_interval_partitioned") {
+  test("003_interval_partitioned") {
     sql("""CREATE TABLE tbl (id INT, period INTERVAL YEAR TO MONTH) USING delta
-      PARTITIONED BY (period) TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+      PARTITIONED BY (period)""")
     sql("INSERT INTO tbl VALUES (1, INTERVAL '1-0' YEAR TO MONTH)")
     sql("INSERT INTO tbl VALUES (2, INTERVAL '2-0' YEAR TO MONTH)")
     sql("INSERT INTO tbl VALUES (3, INTERVAL '1-0' YEAR TO MONTH)")
@@ -56,9 +54,8 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
     snapshotSpec(t)
   }
 
-  test("intv_004_interval_negative") {
-    sql("""CREATE TABLE tbl (id INT, period INTERVAL YEAR TO MONTH) USING delta
-      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+  test("004_interval_negative") {
+    sql("CREATE TABLE tbl (id INT, period INTERVAL YEAR TO MONTH) USING delta")
     sql("INSERT INTO tbl VALUES (1, INTERVAL '-1-6' YEAR TO MONTH)")
     sql("INSERT INTO tbl VALUES (2, INTERVAL '-0-3' YEAR TO MONTH)")
     sql("INSERT INTO tbl VALUES (3, INTERVAL '0-0' YEAR TO MONTH)")
@@ -67,12 +64,12 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
     snapshotSpec(t)
   }
 
-  test("intv_005_interval_mixed") {
+  test("005_interval_mixed") {
     sql("""CREATE TABLE tbl (
       id INT,
       period INTERVAL YEAR TO MONTH,
       duration INTERVAL DAY TO SECOND
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1, INTERVAL '1-0' YEAR TO MONTH, INTERVAL '1 00:00:00' DAY TO SECOND),
       (2, INTERVAL '0-6' YEAR TO MONTH, INTERVAL '0 12:30:00' DAY TO SECOND)""")
@@ -86,7 +83,7 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
       id INT,
       period INTERVAL YEAR TO MONTH,
       duration INTERVAL DAY TO SECOND
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1,
         INTERVAL '1-2' YEAR TO MONTH, INTERVAL '3 04:05:06.000007' DAY TO SECOND),
@@ -106,7 +103,7 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
       amount DECIMAL(10,2),
       period INTERVAL YEAR TO MONTH,
       duration INTERVAL DAY TO SECOND
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1, 'alpha', true, 12.34,
         INTERVAL '1-0' YEAR TO MONTH, INTERVAL '0 01:02:03.000004' DAY TO SECOND),
@@ -126,7 +123,7 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
         label: STRING,
         period: INTERVAL YEAR TO MONTH,
         duration: INTERVAL DAY TO SECOND>
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1, named_struct(
         'label', 'both',
@@ -150,7 +147,7 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
       id INT,
       periods ARRAY<INTERVAL YEAR TO MONTH>,
       durations ARRAY<INTERVAL DAY TO SECOND>
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1,
         array(INTERVAL '1-0' YEAR TO MONTH, INTERVAL '0-6' YEAR TO MONTH),
@@ -170,7 +167,7 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
       id INT,
       ym_labels MAP<INTERVAL YEAR TO MONTH, STRING>,
       dt_labels MAP<INTERVAL DAY TO SECOND, STRING>
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1,
         map(INTERVAL '1-0' YEAR TO MONTH, 'one_year',
@@ -190,7 +187,7 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
       id INT,
       ym_values MAP<STRING, INTERVAL YEAR TO MONTH>,
       dt_values MAP<STRING, INTERVAL DAY TO SECOND>
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1,
         map('primary', INTERVAL '1-0' YEAR TO MONTH,
@@ -207,12 +204,12 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
     snapshotSpec(t)
   }
 
-  test("intv_boundary_values") {
+  test("012_boundary_values") {
     sql("""CREATE TABLE tbl (
       id INT,
       period INTERVAL YEAR TO MONTH,
       duration INTERVAL DAY TO SECOND
-    ) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+    ) USING delta""")
     sql("""INSERT INTO tbl VALUES
       (1, INTERVAL '178956970-7' YEAR TO MONTH, INTERVAL '106751991 04:00:54.775807' DAY TO SECOND),
       (2, INTERVAL '-178956970-8' YEAR TO MONTH, INTERVAL '-106751991 04:00:54.775808' DAY TO
@@ -222,9 +219,8 @@ class IntervalTypesSuite extends WorkloadTestSuite("interval_types") {
     snapshotSpec(t)
   }
 
-  test("intv_sub_second") {
-    sql("""CREATE TABLE tbl (id INT, duration INTERVAL DAY TO SECOND) USING delta
-      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+  test("013_sub_second") {
+    sql("CREATE TABLE tbl (id INT, duration INTERVAL DAY TO SECOND) USING delta")
     sql("""INSERT INTO tbl VALUES
       (1, INTERVAL '0 00:00:00.001' DAY TO SECOND),
       (2, INTERVAL '0 00:00:00.999999' DAY TO SECOND),
