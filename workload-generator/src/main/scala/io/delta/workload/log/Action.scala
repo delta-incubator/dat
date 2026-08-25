@@ -19,7 +19,7 @@ package io.delta.workload.log
 import com.fasterxml.jackson.annotation._
 import com.fasterxml.jackson.databind.node.ObjectNode
 
-import io.delta.workload.JsonUtil
+import io.delta.workload.json.JsonUtil
 
 /**
  * Typed representation of a single Delta log action line.
@@ -178,6 +178,21 @@ case class SidecarFile(
  */
 case class RawAction(json: String) extends Action {
   override def toJson: String = json
+}
+
+/**
+ * Read-only typed view of a `commitInfo` action. Deliberately not a parsed [[Action]]: commitInfo
+ * carries many engine-written fields, so it stays a [[RawAction]] in the parser to round-trip
+ * verbatim through mutation. This exposes just the field the generator reads.
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+case class CommitInfo(inCommitTimestamp: Option[Long] = None)
+
+object CommitInfo {
+  /** The typed view of a `{"commitInfo":{...}}` log line, or None if the line isn't one. */
+  def fromLine(rawJson: String): Option[CommitInfo] =
+    Option(JsonUtil.mapper.readTree(rawJson).get("commitInfo"))
+      .map(JsonUtil.mapper.treeToValue(_, classOf[CommitInfo]))
 }
 
 // =============================================================================

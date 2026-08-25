@@ -17,6 +17,8 @@
 package io.delta.workload.tables
 
 import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.json.JsonUtil
+import io.delta.workload.log.AddFile
 
 /**
  * Data skipping, statistics, and partitioning workloads.
@@ -49,30 +51,30 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "1 = a")
     readSpec(t, predicate = "a <=> 1")
     readSpec(t, predicate = "1 <=> a")
-    readSpec(t, predicate = "NOT (a <=> 2)", name = "read_not_a_nse_2")
-    readSpec(t, predicate = "true", name = "read_true")
+    readSpec(t, predicate = "NOT (a <=> 2)", name = Some("read_not_a_nse_2"))
+    readSpec(t, predicate = "true", name = Some("read_true"))
     // misses
-    readSpec(t, predicate = "NOT (a = 1)", name = "read_miss_not_a_eq_1")
-    readSpec(t, predicate = "NOT (a <=> 1)", name = "read_miss_not_a_nse_1")
-    readSpec(t, predicate = "a = 2", name = "read_miss_a_eq_2")
-    readSpec(t, predicate = "a <=> 2", name = "read_miss_a_nse_2")
-    readSpec(t, predicate = "a > 1", name = "read_miss_a_gt_1")
-    readSpec(t, predicate = "a >= 2", name = "read_miss_a_gte_2")
-    readSpec(t, predicate = "a <= 0", name = "read_miss_a_lte_0")
-    readSpec(t, predicate = "a = 0", name = "read_miss_a_eq_0")
-    readSpec(t, predicate = "a > 2", name = "read_miss_a_gt_2")
-    readSpec(t, predicate = "a < 1", name = "read_miss_a_lt_1")
-    readSpec(t, predicate = "a <> 1", name = "read_miss_a_neq_1")
-    readSpec(t, predicate = "1 != a", name = "read_miss_1_neq_a")
-    readSpec(t, predicate = "2 <=> a", name = "read_miss_2_nse_a")
-    readSpec(t, predicate = "0 >= a", name = "read_miss_0_gte_a")
-    readSpec(t, predicate = "0 = a", name = "read_miss_0_eq_a")
-    readSpec(t, predicate = "1 > a", name = "read_miss_1_gt_a")
-    readSpec(t, predicate = "1 < a", name = "read_miss_1_lt_a")
-    readSpec(t, predicate = "0 > a", name = "read_miss_0_gt_a")
-    readSpec(t, predicate = "2 = a", name = "read_miss_2_eq_a")
-    readSpec(t, predicate = "2 <= a", name = "read_miss_2_lte_a")
-    readSpec(t, predicate = "0 < a AND a < 1", name = "read_miss_between_0_1")
+    readSpec(t, predicate = "NOT (a = 1)", name = Some("read_miss_not_a_eq_1"))
+    readSpec(t, predicate = "NOT (a <=> 1)", name = Some("read_miss_not_a_nse_1"))
+    readSpec(t, predicate = "a = 2", name = Some("read_miss_a_eq_2"))
+    readSpec(t, predicate = "a <=> 2", name = Some("read_miss_a_nse_2"))
+    readSpec(t, predicate = "a > 1", name = Some("read_miss_a_gt_1"))
+    readSpec(t, predicate = "a >= 2", name = Some("read_miss_a_gte_2"))
+    readSpec(t, predicate = "a <= 0", name = Some("read_miss_a_lte_0"))
+    readSpec(t, predicate = "a = 0", name = Some("read_miss_a_eq_0"))
+    readSpec(t, predicate = "a > 2", name = Some("read_miss_a_gt_2"))
+    readSpec(t, predicate = "a < 1", name = Some("read_miss_a_lt_1"))
+    readSpec(t, predicate = "a <> 1", name = Some("read_miss_a_neq_1"))
+    readSpec(t, predicate = "1 != a", name = Some("read_miss_1_neq_a"))
+    readSpec(t, predicate = "2 <=> a", name = Some("read_miss_2_nse_a"))
+    readSpec(t, predicate = "0 >= a", name = Some("read_miss_0_gte_a"))
+    readSpec(t, predicate = "0 = a", name = Some("read_miss_0_eq_a"))
+    readSpec(t, predicate = "1 > a", name = Some("read_miss_1_gt_a"))
+    readSpec(t, predicate = "1 < a", name = Some("read_miss_1_lt_a"))
+    readSpec(t, predicate = "0 > a", name = Some("read_miss_0_gt_a"))
+    readSpec(t, predicate = "2 = a", name = Some("read_miss_2_eq_a"))
+    readSpec(t, predicate = "2 <= a", name = Some("read_miss_2_lte_a"))
+    readSpec(t, predicate = "0 < a AND a < 1", name = Some("read_miss_between_0_1"))
     snapshotSpec(t)
   }
 
@@ -85,9 +87,9 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.b >= 1")
     readSpec(t, predicate = "a.b <= 1")
     readSpec(t, predicate = "a.b <= 2")
-    readSpec(t, predicate = "a.b = 2", name = "read_miss_ab_eq_2")
-    readSpec(t, predicate = "a.b > 1", name = "read_miss_ab_gt_1")
-    readSpec(t, predicate = "a.b < 1", name = "read_miss_ab_lt_1")
+    readSpec(t, predicate = "a.b = 2", name = Some("read_miss_ab_eq_2"))
+    readSpec(t, predicate = "a.b > 1", name = Some("read_miss_ab_gt_1"))
+    readSpec(t, predicate = "a.b < 1", name = Some("read_miss_ab_lt_1"))
     snapshotSpec(t)
   }
 
@@ -100,9 +102,9 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.b.c >= 1")
     readSpec(t, predicate = "a.b.c <= 1")
     readSpec(t, predicate = "a.b.c <= 2")
-    readSpec(t, predicate = "a.b.c = 2", name = "read_miss_abc_eq_2")
-    readSpec(t, predicate = "a.b.c > 1", name = "read_miss_abc_gt_1")
-    readSpec(t, predicate = "a.b.c < 1", name = "read_miss_abc_lt_1")
+    readSpec(t, predicate = "a.b.c = 2", name = Some("read_miss_abc_eq_2"))
+    readSpec(t, predicate = "a.b.c > 1", name = Some("read_miss_abc_gt_1"))
+    readSpec(t, predicate = "a.b.c < 1", name = Some("read_miss_abc_lt_1"))
     snapshotSpec(t)
   }
 
@@ -112,7 +114,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (2, named_struct('score', 50, 'name', 'bob'))")
     val t = registerTable("tbl")
     readSpec(t, predicate = "info.score > 80")
-    readSpec(t, predicate = "info.score < 40", name = "read_miss_low_score")
+    readSpec(t, predicate = "info.score < 40", name = Some("read_miss_low_score"))
     snapshotSpec(t)
   }
 
@@ -123,7 +125,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a = 1 AND b.x = 10")
     readSpec(t, predicate = "b.x > 20 OR b.y < 25")
-    readSpec(t, predicate = "a > 5 AND b.x > 50", name = "read_miss_complex")
+    readSpec(t, predicate = "a > 5 AND b.x > 50", name = Some("read_miss_complex"))
     snapshotSpec(t)
   }
 
@@ -131,9 +133,9 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("CREATE TABLE tbl (a LONG) USING delta")
     sql("INSERT INTO tbl VALUES (1), (2)")
     val t = registerTable("tbl")
-    readSpec(t, predicate = "a <= 1 AND a > -1", name = "read_hit_and_bound")
-    readSpec(t, predicate = "a >= 1 AND a <= 2", name = "read_hit_and_range")
-    readSpec(t, predicate = "a > 5 AND a < 10", name = "read_miss_and_outside")
+    readSpec(t, predicate = "a <= 1 AND a > -1", name = Some("read_hit_and_bound"))
+    readSpec(t, predicate = "a >= 1 AND a <= 2", name = Some("read_hit_and_range"))
+    readSpec(t, predicate = "a > 5 AND a < 10", name = Some("read_miss_and_outside"))
     snapshotSpec(t)
   }
 
@@ -143,8 +145,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a = 1 AND b = 10")
     readSpec(t, predicate = "a >= 1 AND b <= 20")
-    readSpec(t, predicate = "a = 1 AND b > 100", name = "read_miss_b_out")
-    readSpec(t, predicate = "a > 5 AND b > 5", name = "read_miss_both_out")
+    readSpec(t, predicate = "a = 1 AND b > 100", name = Some("read_miss_b_out"))
+    readSpec(t, predicate = "a > 5 AND b > 5", name = Some("read_miss_both_out"))
     snapshotSpec(t)
   }
 
@@ -153,7 +155,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1), (2)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "a = 1 AND CAST(a AS STRING) LIKE '%1'")
-    readSpec(t, predicate = "a > 5 AND CAST(a AS STRING) LIKE '%x'", name = "read_miss_and_unsupported")
+    readSpec(t, predicate = "a > 5 AND CAST(a AS STRING) LIKE '%x'", name = Some("read_miss_and_unsupported"))
     snapshotSpec(t)
   }
 
@@ -163,7 +165,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a = 1 OR a = 3")
     readSpec(t, predicate = "a < 0 OR a > 0")
-    readSpec(t, predicate = "a = 5 OR a = 6", name = "read_miss_or")
+    readSpec(t, predicate = "a = 5 OR a = 6", name = Some("read_miss_or"))
     snapshotSpec(t)
   }
 
@@ -174,7 +176,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a = 1 OR b = 20")
     readSpec(t, predicate = "a = 5 OR b = 10")
     readSpec(t, predicate = "a > 0 OR b > 0")
-    readSpec(t, predicate = "a = 5 OR b = 50", name = "read_miss_or_both")
+    readSpec(t, predicate = "a = 5 OR b = 50", name = Some("read_miss_or_both"))
     snapshotSpec(t)
   }
 
@@ -193,7 +195,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1), (2)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "NOT (a > 5)")
-    readSpec(t, predicate = "NOT (a < 0)", name = "read_not_lt_0")
+    readSpec(t, predicate = "NOT (a < 0)", name = Some("read_not_lt_0"))
     snapshotSpec(t)
   }
 
@@ -203,7 +205,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "NOT (a > 5 AND a < 10)")
     readSpec(t, predicate = "NOT (a > 0 AND a < 3)")
-    readSpec(t, predicate = "NOT (a = 1 AND a = 2)", name = "read_not_and_contra")
+    readSpec(t, predicate = "NOT (a = 1 AND a = 2)", name = Some("read_not_and_contra"))
     snapshotSpec(t)
   }
 
@@ -212,7 +214,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1), (2)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "NOT (a > 5 OR a < -5)")
-    readSpec(t, predicate = "NOT (a = 1 OR a = 2)", name = "read_not_or_all")
+    readSpec(t, predicate = "NOT (a = 1 OR a = 2)", name = Some("read_not_or_all"))
     snapshotSpec(t)
   }
 
@@ -223,8 +225,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a LIKE 'a%'")
     readSpec(t, predicate = "a LIKE 'b%'")
     readSpec(t, predicate = "a LIKE 'app%'")
-    readSpec(t, predicate = "a LIKE 'z%'", name = "read_miss_z")
-    readSpec(t, predicate = "a LIKE 'c%'", name = "read_miss_c")
+    readSpec(t, predicate = "a LIKE 'z%'", name = Some("read_miss_z"))
+    readSpec(t, predicate = "a LIKE 'c%'", name = Some("read_miss_c"))
     snapshotSpec(t)
   }
 
@@ -236,8 +238,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.b LIKE 'a%'")
     readSpec(t, predicate = "a.b LIKE 'b%'")
     readSpec(t, predicate = "a.b LIKE 'app%'")
-    readSpec(t, predicate = "a.b LIKE 'z%'", name = "read_miss_z")
-    readSpec(t, predicate = "a.b LIKE 'c%'", name = "read_miss_c")
+    readSpec(t, predicate = "a.b LIKE 'z%'", name = Some("read_miss_z"))
+    readSpec(t, predicate = "a.b LIKE 'c%'", name = Some("read_miss_c"))
     snapshotSpec(t)
   }
 
@@ -251,9 +253,9 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "name < 'b'")
     readSpec(t, predicate = "name LIKE 'a%'")
     readSpec(t, predicate = "name LIKE 'ch%'")
-    readSpec(t, predicate = "name LIKE 'z%'", name = "read_miss_z")
-    readSpec(t, predicate = "name > 'e'", name = "read_miss_gt_e")
-    readSpec(t, predicate = "name LIKE 'x%'", name = "read_miss_x")
+    readSpec(t, predicate = "name LIKE 'z%'", name = Some("read_miss_z"))
+    readSpec(t, predicate = "name > 'e'", name = Some("read_miss_gt_e"))
+    readSpec(t, predicate = "name LIKE 'x%'", name = Some("read_miss_x"))
     snapshotSpec(t)
   }
 
@@ -267,8 +269,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = s"a = '$longA'")
     readSpec(t, predicate = s"a >= '${"a" * 32}'")
     readSpec(t, predicate = "a LIKE 'aaa%'")
-    readSpec(t, predicate = "a = 'z'", name = "read_miss_z")
-    readSpec(t, predicate = "a < 'a'", name = "read_miss_lt_a")
+    readSpec(t, predicate = "a = 'z'", name = Some("read_miss_z"))
+    readSpec(t, predicate = "a < 'a'", name = Some("read_miss_lt_a"))
     snapshotSpec(t)
   }
 
@@ -282,9 +284,9 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = s"a >= '${"z" * 32}'")
     readSpec(t, predicate = "a LIKE 'zzz%'")
     readSpec(t, predicate = s"a <= '${"z" * 33}'")
-    readSpec(t, predicate = "a = 'a'", name = "read_miss_a")
-    readSpec(t, predicate = "a < 'z'", name = "read_miss_lt_z")
-    readSpec(t, predicate = "a > 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'", name = "read_miss_gt_long_z")
+    readSpec(t, predicate = "a = 'a'", name = Some("read_miss_a"))
+    readSpec(t, predicate = "a < 'z'", name = Some("read_miss_lt_z"))
+    readSpec(t, predicate = "a > 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'", name = Some("read_miss_gt_long_z"))
     snapshotSpec(t)
   }
 
@@ -294,7 +296,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a IN (1, 2)")
     readSpec(t, predicate = "a IN (3)")
-    readSpec(t, predicate = "a IN (10, 20)", name = "read_miss_in")
+    readSpec(t, predicate = "a IN (10, 20)", name = Some("read_miss_in"))
     snapshotSpec(t)
   }
 
@@ -304,7 +306,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (30), (40)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "a IN (10, 30)")
-    readSpec(t, predicate = "a IN (99)", name = "read_miss_in_99")
+    readSpec(t, predicate = "a IN (99)", name = Some("read_miss_in_99"))
     snapshotSpec(t)
   }
 
@@ -314,7 +316,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (named_struct('x', 5))")
     val t = registerTable("tbl")
     readSpec(t, predicate = "s.x IN (1, 5)")
-    readSpec(t, predicate = "s.x IN (99)", name = "read_miss_nested_in")
+    readSpec(t, predicate = "s.x IN (99)", name = Some("read_miss_nested_in"))
     snapshotSpec(t)
   }
 
@@ -323,7 +325,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1), (NULL), (3)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "a IN (1, NULL)")
-    readSpec(t, predicate = "a IN (99, NULL)", name = "read_in_null_miss")
+    readSpec(t, predicate = "a IN (99, NULL)", name = Some("read_in_null_miss"))
     snapshotSpec(t)
   }
 
@@ -344,8 +346,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a IN (1, 2, 3)")
     // Larger IN list (may exceed threshold and become range)
     readSpec(t, predicate = "a IN (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20)",
-      name = "read_in_large")
-    readSpec(t, predicate = "a IN (100, 200)", name = "read_miss_in_large")
+      name = Some("read_in_large"))
+    readSpec(t, predicate = "a IN (100, 200)", name = Some("read_miss_in_large"))
     snapshotSpec(t)
   }
 
@@ -354,7 +356,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1), (2), (3)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "a NOT IN (4, 5)")
-    readSpec(t, predicate = "a NOT IN (1, 2, 3)", name = "read_not_in_all")
+    readSpec(t, predicate = "a NOT IN (1, 2, 3)", name = Some("read_not_in_all"))
     readSpec(t, predicate = "a NOT IN (1)")
     snapshotSpec(t)
   }
@@ -391,21 +393,21 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (NULL)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "a IS NULL")
-    readSpec(t, predicate = "a IS NOT NULL", name = "read_is_not_null")
-    readSpec(t, predicate = "a = 1", name = "read_eq_1")
-    readSpec(t, predicate = "a > 0", name = "read_gt_0")
-    readSpec(t, predicate = "a < 0", name = "read_lt_0")
-    readSpec(t, predicate = "a >= 0", name = "read_gte_0")
-    readSpec(t, predicate = "a <= 0", name = "read_lte_0")
-    readSpec(t, predicate = "a <=> NULL", name = "read_nse_null")
-    readSpec(t, predicate = "a <=> 1", name = "read_nse_1")
-    readSpec(t, predicate = "a IN (1, 2)", name = "read_in_1_2")
-    readSpec(t, predicate = "NOT (a = 1)", name = "read_not_eq_1")
-    readSpec(t, predicate = "NOT (a IS NULL)", name = "read_not_is_null")
-    readSpec(t, predicate = "NOT (a IS NOT NULL)", name = "read_not_is_not_null")
-    readSpec(t, predicate = "a = 1 OR a IS NULL", name = "read_eq_or_null")
-    readSpec(t, predicate = "a = 1 AND a IS NULL", name = "read_eq_and_null")
-    readSpec(t, predicate = "a LIKE 'x%'", name = "read_like_x")
+    readSpec(t, predicate = "a IS NOT NULL", name = Some("read_is_not_null"))
+    readSpec(t, predicate = "a = 1", name = Some("read_eq_1"))
+    readSpec(t, predicate = "a > 0", name = Some("read_gt_0"))
+    readSpec(t, predicate = "a < 0", name = Some("read_lt_0"))
+    readSpec(t, predicate = "a >= 0", name = Some("read_gte_0"))
+    readSpec(t, predicate = "a <= 0", name = Some("read_lte_0"))
+    readSpec(t, predicate = "a <=> NULL", name = Some("read_nse_null"))
+    readSpec(t, predicate = "a <=> 1", name = Some("read_nse_1"))
+    readSpec(t, predicate = "a IN (1, 2)", name = Some("read_in_1_2"))
+    readSpec(t, predicate = "NOT (a = 1)", name = Some("read_not_eq_1"))
+    readSpec(t, predicate = "NOT (a IS NULL)", name = Some("read_not_is_null"))
+    readSpec(t, predicate = "NOT (a IS NOT NULL)", name = Some("read_not_is_not_null"))
+    readSpec(t, predicate = "a = 1 OR a IS NULL", name = Some("read_eq_or_null"))
+    readSpec(t, predicate = "a = 1 AND a IS NULL", name = Some("read_eq_and_null"))
+    readSpec(t, predicate = "a LIKE 'x%'", name = Some("read_like_x"))
     snapshotSpec(t)
   }
 
@@ -413,7 +415,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("CREATE TABLE tbl (a LONG) USING delta")
     sql("INSERT INTO tbl VALUES (1)")
     val t = registerTable("tbl")
-    readSpec(t, predicate = "a IS NULL", name = "read_is_null")
+    readSpec(t, predicate = "a IS NULL", name = Some("read_is_null"))
     readSpec(t, predicate = "a IS NOT NULL")
     snapshotSpec(t)
   }
@@ -429,16 +431,16 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a < 2")
     readSpec(t, predicate = "a >= 1")
     readSpec(t, predicate = "a <= 3")
-    readSpec(t, predicate = "a <=> NULL", name = "read_nse_null")
-    readSpec(t, predicate = "a <=> 1", name = "read_nse_1")
+    readSpec(t, predicate = "a <=> NULL", name = Some("read_nse_null"))
+    readSpec(t, predicate = "a <=> 1", name = Some("read_nse_1"))
     readSpec(t, predicate = "a IN (1, 3)")
-    readSpec(t, predicate = "a IN (5)", name = "read_in_miss_5")
+    readSpec(t, predicate = "a IN (5)", name = Some("read_in_miss_5"))
     readSpec(t, predicate = "a = 1 OR a IS NULL")
     readSpec(t, predicate = "a = 1 AND a IS NOT NULL")
     readSpec(t, predicate = "NOT (a = 1)")
-    readSpec(t, predicate = "NOT (a IS NULL)", name = "read_not_is_null")
-    readSpec(t, predicate = "a > 5", name = "read_miss_gt_5")
-    readSpec(t, predicate = "a < 0", name = "read_miss_lt_0")
+    readSpec(t, predicate = "NOT (a IS NULL)", name = Some("read_not_is_null"))
+    readSpec(t, predicate = "a > 5", name = Some("read_miss_gt_5"))
+    readSpec(t, predicate = "a < 0", name = Some("read_miss_lt_0"))
     snapshotSpec(t)
   }
 
@@ -449,7 +451,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a IS NULL")
     readSpec(t, predicate = "a IS NOT NULL")
     readSpec(t, predicate = "a = 2")
-    readSpec(t, predicate = "a > 5", name = "read_miss_gt_5")
+    readSpec(t, predicate = "a > 5", name = Some("read_miss_gt_5"))
     snapshotSpec(t)
   }
 
@@ -460,13 +462,13 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // a has stats, b does not
     readSpec(t, predicate = "a = 1")
-    readSpec(t, predicate = "a > 5", name = "read_miss_a_gt_5")
+    readSpec(t, predicate = "a > 5", name = Some("read_miss_a_gt_5"))
     readSpec(t, predicate = "b = 'x'")
-    readSpec(t, predicate = "b = 'nonexistent'", name = "read_b_no_stats")
+    readSpec(t, predicate = "b = 'nonexistent'", name = Some("read_b_no_stats"))
     readSpec(t, predicate = "a = 1 AND b = 'x'")
-    readSpec(t, predicate = "a > 5 AND b = 'x'", name = "read_miss_a_has_stats")
+    readSpec(t, predicate = "a > 5 AND b = 'x'", name = Some("read_miss_a_has_stats"))
     readSpec(t, predicate = "a = 1 OR b = 'nonexistent'")
-    readSpec(t, predicate = "a IS NULL", name = "read_a_is_null")
+    readSpec(t, predicate = "a IS NULL", name = Some("read_a_is_null"))
     snapshotSpec(t)
   }
 
@@ -477,7 +479,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a <=> 1")
     readSpec(t, predicate = "a <=> NULL")
     readSpec(t, predicate = "a <=> 3")
-    readSpec(t, predicate = "a <=> 99", name = "read_miss_nse_99")
+    readSpec(t, predicate = "a <=> 99", name = Some("read_miss_nse_99"))
     snapshotSpec(t)
   }
 
@@ -508,8 +510,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a BETWEEN 1 AND 10")
     readSpec(t, predicate = "a BETWEEN 5 AND 20")
-    readSpec(t, predicate = "a BETWEEN 1 AND 25", name = "read_between_all")
-    readSpec(t, predicate = "a BETWEEN 50 AND 100", name = "read_miss_between")
+    readSpec(t, predicate = "a BETWEEN 1 AND 25", name = Some("read_between_all"))
+    readSpec(t, predicate = "a BETWEEN 50 AND 100", name = Some("read_miss_between"))
     snapshotSpec(t)
   }
 
@@ -521,7 +523,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a = true")
     readSpec(t, predicate = "a = false")
     readSpec(t, predicate = "a IS NOT NULL")
-    readSpec(t, predicate = "a IS NULL", name = "read_miss_null")
+    readSpec(t, predicate = "a IS NULL", name = Some("read_miss_null"))
     snapshotSpec(t)
   }
 
@@ -544,8 +546,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "l > 500")
     readSpec(t, predicate = "f < 2.0")
     readSpec(t, predicate = "d >= 20.0")
-    readSpec(t, predicate = "i > 100", name = "read_miss_i")
-    readSpec(t, predicate = "d < 1.0", name = "read_miss_d")
+    readSpec(t, predicate = "i > 100", name = Some("read_miss_i"))
+    readSpec(t, predicate = "d < 1.0", name = Some("read_miss_d"))
     snapshotSpec(t)
   }
 
@@ -556,7 +558,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "t = 1")
     readSpec(t, predicate = "s > 30000")
-    readSpec(t, predicate = "t > 127", name = "read_miss_t")
+    readSpec(t, predicate = "t > 127", name = Some("read_miss_t"))
     snapshotSpec(t)
   }
 
@@ -596,7 +598,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "d = DATE'2024-01-01'")
     readSpec(t, predicate = "d > DATE'2024-03-01'")
     readSpec(t, predicate = "ts < TIMESTAMP'2024-03-01 00:00:00'")
-    readSpec(t, predicate = "d > DATE'2025-01-01'", name = "read_miss_future")
+    readSpec(t, predicate = "d > DATE'2025-01-01'", name = Some("read_miss_future"))
     snapshotSpec(t)
   }
 
@@ -607,7 +609,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "ts = TIMESTAMP'2024-01-01 00:00:00.000001'")
     readSpec(t, predicate = "ts > TIMESTAMP'2024-01-01 00:00:00.000002'",
-      name = "read_miss_after")
+      name = Some("read_miss_after"))
     snapshotSpec(t)
   }
 
@@ -620,7 +622,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "ts = TIMESTAMP_NTZ'2024-01-01 00:00:00'")
     readSpec(t, predicate = "ts > TIMESTAMP_NTZ'2025-01-01 00:00:00'",
-      name = "read_miss_future_ntz")
+      name = Some("read_miss_future_ntz"))
     snapshotSpec(t)
   }
 
@@ -631,7 +633,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "year(d) = 2024")
     readSpec(t, predicate = "year(d) = 2025")
-    readSpec(t, predicate = "year(d) = 2020", name = "read_miss_year")
+    readSpec(t, predicate = "year(d) = 2020", name = Some("read_miss_year"))
     snapshotSpec(t)
   }
 
@@ -642,7 +644,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "month(d) = 1")
     readSpec(t, predicate = "month(d) = 6")
-    readSpec(t, predicate = "month(d) = 8", name = "read_miss_month")
+    readSpec(t, predicate = "month(d) = 8", name = Some("read_miss_month"))
     snapshotSpec(t)
   }
 
@@ -653,7 +655,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "trunc(d, 'MONTH') = DATE'2024-03-01'")
     readSpec(t, predicate = "trunc(d, 'MONTH') = DATE'2024-06-01'")
-    readSpec(t, predicate = "trunc(d, 'YEAR') = DATE'2025-01-01'", name = "read_miss_trunc")
+    readSpec(t, predicate = "trunc(d, 'YEAR') = DATE'2025-01-01'", name = Some("read_miss_trunc"))
     snapshotSpec(t)
   }
 
@@ -664,7 +666,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "date_trunc('MONTH', ts) = TIMESTAMP'2024-03-01 00:00:00'")
     readSpec(t, predicate = "date_trunc('YEAR', ts) = TIMESTAMP'2025-01-01 00:00:00'",
-      name = "read_miss_trunc_ts")
+      name = Some("read_miss_trunc_ts"))
     snapshotSpec(t)
   }
 
@@ -685,7 +687,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "d >= date_add(DATE'2024-01-01', -1)")
     readSpec(t, predicate = "d <= date_sub(DATE'2024-01-01', 10)",
-      name = "read_miss_date_sub")
+      name = Some("read_miss_date_sub"))
     snapshotSpec(t)
   }
 
@@ -695,14 +697,14 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl SELECT id FROM range(11, 21)")  // file 2: 11-20
     sql("INSERT INTO tbl SELECT id FROM range(21, 31)")  // file 3: 21-30
     val t = registerTable("tbl")
-    readSpec(t, name = "read_full_scan")
-    readSpec(t, predicate = "a <= 10", name = "read_hit_file1_only")
-    readSpec(t, predicate = "a > 10 AND a <= 20", name = "read_hit_file2_only")
-    readSpec(t, predicate = "a > 20", name = "read_hit_file3_only")
-    readSpec(t, predicate = "a <= 15", name = "read_hit_file1_and_2")
-    readSpec(t, predicate = "a > 15", name = "read_hit_file2_and_3")
-    readSpec(t, predicate = "a > 100", name = "read_miss_all_gt_100")
-    readSpec(t, predicate = "a < 0", name = "read_miss_all_lt_0")
+    readSpec(t, name = Some("read_full_scan"))
+    readSpec(t, predicate = "a <= 10", name = Some("read_hit_file1_only"))
+    readSpec(t, predicate = "a > 10 AND a <= 20", name = Some("read_hit_file2_only"))
+    readSpec(t, predicate = "a > 20", name = Some("read_hit_file3_only"))
+    readSpec(t, predicate = "a <= 15", name = Some("read_hit_file1_and_2"))
+    readSpec(t, predicate = "a > 15", name = Some("read_hit_file2_and_3"))
+    readSpec(t, predicate = "a > 100", name = Some("read_miss_all_gt_100"))
+    readSpec(t, predicate = "a < 0", name = Some("read_miss_all_lt_0"))
     snapshotSpec(t)
   }
 
@@ -713,7 +715,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "ts < TIMESTAMP'2024-02-01 00:00:00'")
     readSpec(t, predicate = "ts >= TIMESTAMP'2024-06-01 00:00:00'")
-    readSpec(t, predicate = "ts > TIMESTAMP'2025-01-01 00:00:00'", name = "read_miss_future")
+    readSpec(t, predicate = "ts > TIMESTAMP'2025-01-01 00:00:00'", name = Some("read_miss_future"))
     snapshotSpec(t)
   }
 
@@ -745,12 +747,12 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "c9 > 20000")
     readSpec(t, predicate = "c10 > 5.00")
     readSpec(t, predicate = "c10 = 1.23")
-    readSpec(t, predicate = "c1 > 200", name = "read_miss_c1")
-    readSpec(t, predicate = "c3 > 200.0", name = "read_miss_c3")
-    readSpec(t, predicate = "c4 < 1.0", name = "read_miss_c4")
-    readSpec(t, predicate = "c5 > TIMESTAMP'2025-06-01 00:00:00'", name = "read_miss_c5")
-    readSpec(t, predicate = "c7 > DATE'2025-01-01'", name = "read_miss_c7")
-    readSpec(t, predicate = "c10 > 9.99", name = "read_miss_c10")
+    readSpec(t, predicate = "c1 > 200", name = Some("read_miss_c1"))
+    readSpec(t, predicate = "c3 > 200.0", name = Some("read_miss_c3"))
+    readSpec(t, predicate = "c4 < 1.0", name = Some("read_miss_c4"))
+    readSpec(t, predicate = "c5 > TIMESTAMP'2025-06-01 00:00:00'", name = Some("read_miss_c5"))
+    readSpec(t, predicate = "c7 > DATE'2025-01-01'", name = Some("read_miss_c7"))
+    readSpec(t, predicate = "c10 > 9.99", name = Some("read_miss_c10"))
     snapshotSpec(t)
   }
 
@@ -781,7 +783,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a = 1")
     readSpec(t, predicate = "b = 10")
-    readSpec(t, predicate = "a > 100", name = "read_a_gt_100")
+    readSpec(t, predicate = "a > 100", name = Some("read_a_gt_100"))
     snapshotSpec(t)
   }
 
@@ -793,15 +795,15 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // a has stats
     readSpec(t, predicate = "a = 1")
-    readSpec(t, predicate = "a > 10", name = "read_miss_a")
+    readSpec(t, predicate = "a > 10", name = Some("read_miss_a"))
     // b has no stats
     readSpec(t, predicate = "b = 10")
-    readSpec(t, predicate = "b > 100", name = "read_b_no_skip")
+    readSpec(t, predicate = "b > 100", name = Some("read_b_no_skip"))
     // c has stats
     readSpec(t, predicate = "c = 100")
-    readSpec(t, predicate = "c > 1000", name = "read_miss_c")
+    readSpec(t, predicate = "c > 1000", name = Some("read_miss_c"))
     readSpec(t, predicate = "a = 1 AND c = 100")
-    readSpec(t, predicate = "a > 10 AND c > 1000", name = "read_miss_ac")
+    readSpec(t, predicate = "a > 10 AND c > 1000", name = Some("read_miss_ac"))
     readSpec(t, predicate = "a = 1 OR b = 10")
     snapshotSpec(t)
   }
@@ -817,17 +819,17 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // a.x has stats
     readSpec(t, predicate = "a.x = 1")
-    readSpec(t, predicate = "a.x > 10", name = "read_miss_ax")
+    readSpec(t, predicate = "a.x > 10", name = Some("read_miss_ax"))
     // a.y no stats
     readSpec(t, predicate = "a.y = 10")
-    readSpec(t, predicate = "a.y > 100", name = "read_ay_no_skip")
+    readSpec(t, predicate = "a.y > 100", name = Some("read_ay_no_skip"))
     // b.p no stats
     readSpec(t, predicate = "b.p = 100")
     // b.q has stats
     readSpec(t, predicate = "b.q = 1000")
-    readSpec(t, predicate = "b.q > 10000", name = "read_miss_bq")
+    readSpec(t, predicate = "b.q > 10000", name = Some("read_miss_bq"))
     readSpec(t, predicate = "a.x = 1 AND b.q = 1000")
-    readSpec(t, predicate = "a.x > 10 AND b.q > 10000", name = "read_miss_ax_bq")
+    readSpec(t, predicate = "a.x > 10 AND b.q > 10000", name = Some("read_miss_ax_bq"))
     snapshotSpec(t)
   }
 
@@ -843,8 +845,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.x = 1")
     readSpec(t, predicate = "a.y.z = 10")
     readSpec(t, predicate = "b = 100")
-    readSpec(t, predicate = "a.x > 10", name = "read_miss_ax")
-    readSpec(t, predicate = "a.y.z > 100", name = "read_miss_ayz")
+    readSpec(t, predicate = "a.x > 10", name = Some("read_miss_ax"))
+    readSpec(t, predicate = "a.y.z > 100", name = Some("read_miss_ayz"))
     snapshotSpec(t)
   }
 
@@ -869,7 +871,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     readSpec(t, predicate = "a = 1")
     readSpec(t, predicate = "b = 30")
-    readSpec(t, predicate = "a > 5", name = "read_miss_a")
+    readSpec(t, predicate = "a > 5", name = Some("read_miss_a"))
     readSpec(t, predicate = "b IS NULL")
     snapshotSpec(t)
   }
@@ -880,8 +882,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Strip stats from commit
     modifyCommitActions(t, version = 1) { actions =>
-      actions.map { case ("add", node) =>
-        node.remove("stats"); ("add", node)
+      actions.map {
+        case a: AddFile => a.copy(stats = None)
         case other => other
       }
     }
@@ -911,7 +913,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.x = 1")
     readSpec(t, predicate = "a.y = 10")
     readSpec(t, predicate = "b = 100")
-    readSpec(t, predicate = "b > 500", name = "read_b_no_stats")
+    readSpec(t, predicate = "b > 500", name = Some("read_b_no_stats"))
     snapshotSpec(t)
   }
 
@@ -929,8 +931,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.y = 10")
     readSpec(t, predicate = "b = 100")
     readSpec(t, predicate = "c.p = 1000")
-    readSpec(t, predicate = "a.x > 10", name = "read_miss_ax")
-    readSpec(t, predicate = "b > 1000", name = "read_miss_b")
+    readSpec(t, predicate = "a.x > 10", name = Some("read_miss_ax"))
+    readSpec(t, predicate = "b > 1000", name = Some("read_miss_b"))
     readSpec(t, predicate = "a.x = 1 AND b = 100")
     readSpec(t, predicate = "a.x = 1 OR c.p = 5000")
     snapshotSpec(t)
@@ -968,7 +970,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "a.x = 1")
     readSpec(t, predicate = "b.r = 6")
     readSpec(t, predicate = "c.u = 9")
-    readSpec(t, predicate = "c.u > 100", name = "read_miss_cu")
+    readSpec(t, predicate = "c.u > 100", name = Some("read_miss_cu"))
     readSpec(t, predicate = "a.x = 1 AND c.u = 9")
     snapshotSpec(t)
   }
@@ -982,8 +984,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "part = 'a'")
     readSpec(t, predicate = "part = 'b' AND id > 3")
     readSpec(t, predicate = "id < 3")
-    readSpec(t, predicate = "part = 'z'", name = "read_miss_part")
-    readSpec(t, predicate = "id > 100", name = "read_miss_id")
+    readSpec(t, predicate = "part = 'z'", name = Some("read_miss_part"))
+    readSpec(t, predicate = "id > 100", name = Some("read_miss_id"))
     snapshotSpec(t)
   }
 
@@ -993,7 +995,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (3, 30, 'b'), (4, 40, 'b')")
     val t = registerTable("tbl")
     readSpec(t, predicate = "part = 'a' AND value > 15")
-    readSpec(t, predicate = "part = 'b' AND value < 25", name = "read_miss_combined")
+    readSpec(t, predicate = "part = 'b' AND value < 25", name = Some("read_miss_combined"))
     readSpec(t, predicate = "part = 'a' OR value > 35")
     snapshotSpec(t)
   }
@@ -1003,7 +1005,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1, 'a'), (2, 'b'), (3, 'c')")
     val t = registerTable("tbl")
     readSpec(t, predicate = "part = 'a' OR part = 'c'")
-    readSpec(t, predicate = "part = 'z'", name = "read_miss_part")
+    readSpec(t, predicate = "part = 'z'", name = Some("read_miss_part"))
     snapshotSpec(t)
   }
 
@@ -1012,7 +1014,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl VALUES (1, 2, 3)")
     val t = registerTable("tbl")
     readSpec(t, predicate = "c = 3")
-    readSpec(t, columns = Seq("c", "a"))
+    readSpec(t, columns = Some(Seq("c", "a")))
     snapshotSpec(t)
   }
 
@@ -1032,7 +1034,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("INSERT INTO tbl SELECT id FROM range(11, 21)")  // file 2: 11-20
     sql("DELETE FROM tbl WHERE a = 5")  // DV on file 1
     val t = registerTable("tbl")
-    readSpec(t, predicate = "a = 5", name = "read_deleted_row")
+    readSpec(t, predicate = "a = 5", name = Some("read_deleted_row"))
     readSpec(t, predicate = "a > 15")
     readSpec(t, predicate = "a = 1")
     snapshotSpec(t)
@@ -1046,7 +1048,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     sql("DELETE FROM tbl WHERE a <= 5")
     val t = registerTable("tbl")
     readSpec(t, predicate = "a > 10")
-    readSpec(t, predicate = "a <= 5", name = "read_all_deleted")
+    readSpec(t, predicate = "a <= 5", name = Some("read_all_deleted"))
     snapshotSpec(t)
   }
 
@@ -1115,10 +1117,10 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "c6 > TIMESTAMP_NTZ'2024-03-01 00:00:00'")
     readSpec(t, predicate = "c7 = DATE'2024-01-01'")
     readSpec(t, predicate = "c10 > 2.00")
-    readSpec(t, predicate = "c1 > 100", name = "read_miss_c1")
-    readSpec(t, predicate = "c3 > 100.0", name = "read_miss_c3")
-    readSpec(t, predicate = "c7 > DATE'2025-01-01'", name = "read_miss_c7")
-    readSpec(t, predicate = "c10 > 9.99", name = "read_miss_c10")
+    readSpec(t, predicate = "c1 > 100", name = Some("read_miss_c1"))
+    readSpec(t, predicate = "c3 > 100.0", name = Some("read_miss_c3"))
+    readSpec(t, predicate = "c7 > DATE'2025-01-01'", name = Some("read_miss_c7"))
+    readSpec(t, predicate = "c10 > 9.99", name = Some("read_miss_c10"))
     readSpec(t, predicate = "c1 = 1 AND c10 = 1.23")
     snapshotSpec(t)
   }
@@ -1152,14 +1154,14 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t, predicate = "renamed_c8 = 1")
     readSpec(t, predicate = "c9 > 150")
     readSpec(t, predicate = "c10 > 2.00")
-    readSpec(t, predicate = "c1 > 100", name = "read_miss_c1")
-    readSpec(t, predicate = "renamed_c2 = 'z'", name = "read_miss_renamed_c2")
-    readSpec(t, predicate = "c3 > 100.0", name = "read_miss_c3")
-    readSpec(t, predicate = "c7 > DATE'2025-01-01'", name = "read_miss_c7")
-    readSpec(t, predicate = "c10 > 9.99", name = "read_miss_c10")
+    readSpec(t, predicate = "c1 > 100", name = Some("read_miss_c1"))
+    readSpec(t, predicate = "renamed_c2 = 'z'", name = Some("read_miss_renamed_c2"))
+    readSpec(t, predicate = "c3 > 100.0", name = Some("read_miss_c3"))
+    readSpec(t, predicate = "c7 > DATE'2025-01-01'", name = Some("read_miss_c7"))
+    readSpec(t, predicate = "c10 > 9.99", name = Some("read_miss_c10"))
     readSpec(t, predicate = "c1 = 1 AND renamed_c2 = 'a'")
     readSpec(t, predicate = "c1 = 1 AND c10 = 1.23")
-    readSpec(t, predicate = "c1 > 100 AND c10 > 9.99", name = "read_miss_c1_c10")
+    readSpec(t, predicate = "c1 > 100 AND c10 > 9.99", name = Some("read_miss_c1_c10"))
     snapshotSpec(t)
   }
 
@@ -1190,19 +1192,13 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Strip min/max stats, keep only numRecords
     modifyCommitActions(t, 0) { actions =>
-      actions.map { case ("add", node) =>
-        if (node.has("stats")) {
-          val stats = node.get("stats").asText()
-          if (stats.contains("numRecords")) {
-            import com.fasterxml.jackson.databind.ObjectMapper
-            val mapper = new ObjectMapper()
-            val statsNode = mapper.readTree(stats)
-            val newStats = mapper.createObjectNode()
-            newStats.set("numRecords", statsNode.get("numRecords"))
-            node.put("stats", mapper.writeValueAsString(newStats))
-          }
-        }
-        ("add", node)
+      actions.map {
+        case a: AddFile if a.stats.exists(_.contains("numRecords")) =>
+          val statsNode = JsonUtil.mapper.readTree(a.stats.get)
+          val newStats = JsonUtil.mapper.createObjectNode()
+          newStats.set[com.fasterxml.jackson.databind.JsonNode](
+            "numRecords", statsNode.get("numRecords"))
+          a.copy(stats = Some(JsonUtil.mapper.writeValueAsString(newStats)))
         case other => other
       }
     }
@@ -1253,9 +1249,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Strip stats completely to simulate empty stats string
     modifyCommitActions(t, 0) { actions =>
-      actions.map { case ("add", node) =>
-        if (node.has("stats")) node.put("stats", "")
-        ("add", node)
+      actions.map {
+        case a: AddFile if a.stats.isDefined => a.copy(stats = Some(""))
         case other => other
       }
     }
@@ -1269,8 +1264,8 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     val t = registerTable("tbl")
     // Remove stats field entirely
     modifyCommitActions(t, 0) { actions =>
-      actions.map { case ("add", node) =>
-        node.remove("stats"); ("add", node)
+      actions.map {
+        case a: AddFile => a.copy(stats = None)
         case other => other
       }
     }
@@ -1299,7 +1294,7 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
     readSpec(t)
     readSpec(t, predicate = "year = 2024")
     readSpec(t, predicate = "year = 2025 AND month = 1")
-    readSpec(t, columns = Seq("id", "year"))
+    readSpec(t, columns = Some(Seq("id", "year")))
     snapshotSpec(t)
   }
 
@@ -1350,10 +1345,10 @@ class DataSkippingSuite extends WorkloadTestSuite("data_skipping") {
       (3,'z',3.3,true,DATE'2025-01-01')""")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("a"))
-    readSpec(t, columns = Seq("b", "d"))
-    readSpec(t, columns = Seq("e", "c", "a"))
-    readSpec(t, predicate = "a > 1", columns = Seq("a", "b"))
+    readSpec(t, columns = Some(Seq("a")))
+    readSpec(t, columns = Some(Seq("b", "d")))
+    readSpec(t, columns = Some(Seq("e", "c", "a")))
+    readSpec(t, predicate = "a > 1", columns = Some(Seq("a", "b")))
     snapshotSpec(t)
   }
 

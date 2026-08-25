@@ -17,6 +17,7 @@
 package io.delta.workload.tables
 
 import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.log.AddFile
 
 class CorruptionSuite extends WorkloadTestSuite("corruption") {
 
@@ -80,8 +81,8 @@ class CorruptionSuite extends WorkloadTestSuite("corruption") {
     sql("INSERT INTO tbl VALUES (1,'a'),(2,'b'),(3,'c')")
     val t = registerTable("tbl")
     modifyCommitActions(t, version = 1) { actions =>
-      actions.map { case ("add", node) =>
-        node.put("stats", """{"numRecords":999}"""); ("add", node)
+      actions.map {
+        case a: AddFile => a.copy(stats = Some("""{"numRecords":999}"""))
         case other => other
       }
     }

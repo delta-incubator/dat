@@ -17,6 +17,7 @@
 package io.delta.workload.tables
 
 import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.model.ErrorCode
 
 class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
 
@@ -123,7 +124,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     checkpoint("tbl")
     sql("INSERT INTO tbl VALUES (6)")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
+    readSpec(t, name = Some("read_latest"))
     readSpec(t, version = 0)
     readSpec(t, version = 1)
     readSpec(t, version = 2)
@@ -143,7 +144,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
       val jsonFile = logDir.resolve("00000000000000000003.json")
       if (java.nio.file.Files.exists(jsonFile)) java.nio.file.Files.delete(jsonFile)
     }
-    readSpec(t, name = "read_at_checkpoint")
+    readSpec(t, name = Some("read_at_checkpoint"))
     snapshotSpec(t)
   }
 
@@ -260,12 +261,12 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
         'delta.enableDeletionVectors' = 'true')""")
     for (i <- 0 to 6) sql(s"INSERT INTO tbl SELECT CAST(id AS INT) FROM range(${i*15}, ${(i+1)*15})")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
+    readSpec(t, name = Some("read_latest"))
     readSpec(t, version = 0)
     readSpec(t, version = 1)
-    readSpec(t, version = 2, name = "read_v2_two_sidecars")
-    readSpec(t, version = 4, name = "read_v4_four_sidecars")
-    readSpec(t, version = 5, name = "read_v5_part_size_100")
+    readSpec(t, version = 2, name = Some("read_v2_two_sidecars"))
+    readSpec(t, version = 4, name = Some("read_v4_four_sidecars"))
+    readSpec(t, version = 5, name = Some("read_v5_part_size_100"))
     snapshotSpec(t)
   }
 
@@ -276,13 +277,13 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
         'delta.enableDeletionVectors' = 'true')""")
     for (i <- 0 to 6) sql(s"INSERT INTO tbl SELECT CAST(id AS INT) FROM range(${i*10}, ${(i+1)*10})")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
+    readSpec(t, name = Some("read_latest"))
     readSpec(t, version = 0)
     readSpec(t, version = 1)
-    readSpec(t, version = 2, name = "read_v2_two_sidecars")
+    readSpec(t, version = 2, name = Some("read_v2_two_sidecars"))
     readSpec(t, version = 3)
-    readSpec(t, version = 4, name = "read_v4_four_sidecars")
-    readSpec(t, version = 5, name = "read_v5_part_size_100")
+    readSpec(t, version = 4, name = Some("read_v4_four_sidecars"))
+    readSpec(t, version = 5, name = Some("read_v5_part_size_100"))
     readSpec(t, version = 6)
     snapshotSpec(t)
   }
@@ -295,7 +296,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     sql("DELETE FROM tbl WHERE id IN (2, 4)")
     checkpoint("tbl")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all_from_checkpoint")
+    readSpec(t, name = Some("read_all_from_checkpoint"))
     snapshotSpec(t)
   }
 
@@ -307,7 +308,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     sql("DELETE FROM tbl WHERE id IN (3, 7, 15)")
     checkpoint("tbl")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_all_from_checkpoint")
+    readSpec(t, name = Some("read_all_from_checkpoint"))
     snapshotSpec(t)
   }
 
@@ -320,7 +321,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     checkpoint("tbl")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("name"))
+    readSpec(t, columns = Some(Seq("name")))
     snapshotSpec(t)
   }
 
@@ -387,7 +388,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     checkpoint("tbl")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, columns = Seq("info", "tags"))
+    readSpec(t, columns = Some(Seq("info", "tags")))
     snapshotSpec(t)
   }
 
@@ -472,7 +473,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     for (i <- 0 to 4) sql(s"INSERT INTO tbl SELECT CAST(id AS INT) FROM range(${i*50}, ${(i+1)*50})")
     checkpoint("tbl")
     val t = registerTable("tbl")
-    readSpec(t, name = "read_latest")
+    readSpec(t, name = Some("read_latest"))
     readSpec(t, version = 0)
     readSpec(t, version = 1)
     readSpec(t, version = 2)
@@ -528,7 +529,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
         .foreach(java.nio.file.Files.delete)
     }
     // The log dir is empty — Spark should report DELTA_TABLE_NOT_FOUND.
-    snapshotSpec(t, expectError = "DELTA_TABLE_NOT_FOUND")
+    snapshotSpec(t, expectError = ErrorCode("DELTA_TABLE_NOT_FOUND"))
   }
 
   test("err_missing_protocol") {
@@ -542,7 +543,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
         .foreach(java.nio.file.Files.delete)
     }
     // Same shape as err_missing_metadata above — empty log → table-not-found.
-    snapshotSpec(t, expectError = "DELTA_TABLE_NOT_FOUND")
+    snapshotSpec(t, expectError = ErrorCode("DELTA_TABLE_NOT_FOUND"))
   }
 
 }

@@ -249,13 +249,13 @@ Or on error (corrupt table, bad version, unsupported protocol):
 {
   "type": "read",
   "version": 999,
-  "expectedError": { "errorCode": "DELTA_VERSION_NOT_FOUND", "errorMessage": "..." }
+  "error": { "errorCode": "DELTA_VERSION_NOT_FOUND", "errorMessage": "..." }
 }
 ```
 
 Auto-naming: `read` → `read_v0` → `read_id_gt_5` → `read_cols_id` → `read_v2_id_gt_5_cols_id_name`.
 
-Expected data: `expected/<test>_<name>/expected_data/*.parquet` (multiset comparison, order-independent) and `expected/<test>_<name>/expected_metadata/*.parquet` (scanned AddFile actions).
+Expected data: `expected/<test>_<name>/expected_data/*.parquet` (typed row comparison, order-independent) and `expected/<test>_<name>/expected_metadata/*.parquet` (scanned AddFile actions).
 
 ### `snapshotSpec(t, ...)`
 
@@ -311,23 +311,22 @@ test("missing_file", "Test missing data file") {
 
 ### modifyCommitActions — Action-Level Manipulation
 
-The modifier receives the full list of `(actionType, innerNode)` pairs for a commit and returns the (possibly reordered, filtered, or modified) list to write back.
+The modifier receives the commit's typed `Seq[Action]` (subtypes `AddFile`, `RemoveFile`, `Metadata`, `Protocol`, `Txn`, `DomainMetadata`, …; unrecognized or malformed lines arrive as `RawAction` and pass through unchanged) and returns the reordered, filtered, or modified list to write back. Use `.copy` to edit fields. For byte-exact corruption, use the raw `mutateTable` path below instead.
 
 ```scala
+import io.delta.workload.log.{AddFile, Metadata}
+
 // Modify add actions
-modifyCommitActions(t, version = 1) { actions =>
-  actions.map { case ("add", node) =>
-    node.put("stats", """{"numRecords":999}"""); ("add", node)
-    case other => other
-  }
+modifyCommitActions(t, version = 1) {
+  _.map { case a: AddFile => a.copy(stats = Some("""{"numRecords":999}""")); case other => other }
 }
 
 // Drop all add actions
-modifyCommitActions(t, version = 1) { _.filter(_._1 != "add") }
+modifyCommitActions(t, version = 1) { _.filterNot(_.isInstanceOf[AddFile]) }
 
-// Reorder — put metaData last
+// Reorder: put metaData last
 modifyCommitActions(t, version = 0) { actions =>
-  val (meta, rest) = actions.partition(_._1 == "metaData")
+  val (meta, rest) = actions.partition(_.isInstanceOf[Metadata])
   rest ++ meta
 }
 ```
@@ -603,7 +602,7 @@ This generates 12 independent workloads (`2 partition modes × 2 DV modes × 3 p
 
 Every spec is self-validated during generation:
 
-1. **Read specs:** The framework reads the table, writes expected Parquet, re-reads, and compares multisets
+1. **Read specs:** The framework reads the table, writes expected Parquet, re-reads, and compares rows by schema equality + bag-semantics diff
 2. **Snapshot specs:** The framework loads the snapshot, writes the spec, re-loads, and deep-compares protocol/metadata JSON
 3. **Error specs:** The framework triggers the error, writes the spec, re-triggers, and verifies the same error occurs
 
@@ -630,14 +629,6 @@ WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *MyFeatureSuite"
 WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *MyFeatureSuite -- -t mf_basic"
 ```
 
-### Force Regeneration
-
-```bash
-WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *MyFeatureSuite"
-```
-
-Without `WORKLOAD_FORCE=true`, tests that already have `table_info.json` in the output are skipped.
-
 ### Run All Suites
 
 ```bash
@@ -661,16 +652,15 @@ This runs `WorkloadGeneratorSuite` which tests the framework itself.
 
 1. Check the console output for `[FAIL]` lines
 2. Failed tests clean up their output — re-run to see the error again
-3. Set `WORKLOAD_FORCE=true` to regenerate everything
 
 ### Validation Failures
 
-The framework prints detailed diff information on multiset mismatches:
+The framework prints detailed diff information on row mismatches:
 
 ```
-Validation FAILED for my_test_read: row-level mismatch (expected 3, got 2)
+Validation FAILED for my_test_read: row-level mismatch
   Missing rows: 1
-    {"id":3,"name":"charlie"}
+    [3,charlie]
 ```
 
 ### Spark Errors During Setup

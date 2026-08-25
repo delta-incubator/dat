@@ -17,7 +17,9 @@
 package io.delta.workload.deltaharness
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.delta.{DeltaLog, Snapshot}
+import org.apache.spark.sql.delta.{DeltaLog, Snapshot => DeltaSnapshot}
+// Hide Spark's types.Metadata so the unqualified `Metadata` is this package's typed case class.
+import org.apache.spark.sql.types.{Metadata => _, _}
 
 class DeltaSparkHarness extends DeltaHarness {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
@@ -27,16 +29,36 @@ class DeltaSparkHarness extends DeltaHarness {
 }
 
 private class DeltaSparkLogView(inner: DeltaLog) extends LogView {
-  override def update(): SnapshotView = new DeltaSparkSnapshotView(inner.update())
-  override def getSnapshotAt(version: Long): SnapshotView =
-    new DeltaSparkSnapshotView(inner.getSnapshotAt(version))
+  override def update(): ResolvedSnapshot = new DeltaSparkResolvedSnapshot(inner.update())
+  override def getSnapshotAt(version: Long): ResolvedSnapshot =
+    new DeltaSparkResolvedSnapshot(inner.getSnapshotAt(version))
   override def checkpoint(): Unit = inner.checkpoint()
 }
 
-private class DeltaSparkSnapshotView(inner: Snapshot) extends SnapshotView {
+private class DeltaSparkResolvedSnapshot(inner: DeltaSnapshot) extends ResolvedSnapshot {
   override def version: Long = inner.version
-  override def protocolJson: String = inner.protocol.json
-  override def metadataJson: String = inner.metadata.json
+
+  override def snapshot: Snapshot = {
+    val p = inner.protocol
+    val m = inner.metadata
+    Snapshot(
+      version = inner.version,
+      protocol = Protocol(
+        minReaderVersion = p.minReaderVersion,
+        minWriterVersion = p.minWriterVersion,
+        readerFeatures = p.readerFeatures.map(_.toSeq.sorted),
+        writerFeatures = p.writerFeatures.map(_.toSeq.sorted)),
+      metadata = Metadata(
+        id = m.id,
+        name = Option(m.name),
+        description = Option(m.description),
+        format = Format(m.format.provider, m.format.options),
+        schema = m.schema,
+        partitionColumns = m.partitionColumns,
+        createdTime = m.createdTime,
+        configuration = m.configuration))
+  }
+
   override def allFiles: DataFrame = {
     val ds = inner.allFiles
     val spark = ds.sparkSession

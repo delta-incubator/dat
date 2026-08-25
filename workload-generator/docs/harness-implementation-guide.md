@@ -106,7 +106,7 @@ Specs are JSON files with a `"type"` discriminator. See the [Spec Format Referen
 
 **Execute:** open `delta/`, apply time travel (if `version` or `timestamp`), scan with column projection, filter with predicate.
 
-**Validate:** compare results against `expected/<spec_name>/expected_data/*.parquet` as an **order-independent multiset** (sort rows before comparing). Also assert `rowCount`. `fileCount`/`filesSkipped` are optional data-skipping checks.
+**Validate:** compare results against `expected/<spec_name>/expected_data/*.parquet` as an **order-independent bag of typed rows**: schemas must match by column name and type, then rows are diffed with bag semantics (duplicates count). Map columns compare key-order-insensitively and variant by its JSON string. Also assert `rowCount`. `fileCount`/`filesSkipped` are optional data-skipping checks.
 
 The delta-kernel-rs implementation:
 
@@ -195,13 +195,13 @@ pub fn validate_snapshot(
 
 ### Error Specs
 
-Any spec type can have `"expectedError"` instead of `"expected"`:
+Any spec type can have `"error"` instead of `"expected"`:
 
 ```json
 {
   "type": "read",
   "version": 999,
-  "expectedError": { "errorCode": "DELTA_VERSION_NOT_FOUND", "errorMessage": "..." }
+  "error": { "errorCode": "DELTA_VERSION_NOT_FOUND", "errorMessage": "..." }
 }
 ```
 
@@ -232,7 +232,7 @@ Don't try to pass every test at once. Use `table_info.json` protocol fields and 
 
 | Symptom | Likely Cause |
 |---------|-------------|
-| Row count matches but multiset differs | Type coercion (int vs long, null handling, timestamp precision) |
+| Row count matches but row contents differ | Type coercion (int vs long surfaces as a schema mismatch, null handling, timestamp precision) |
 | All reads fail for DV tables | Deletion vector support missing |
 | Snapshot protocol doesn't match | Missing reader/writer feature parsing |
 | Time travel fails | Version resolution logic incorrect |

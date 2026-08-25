@@ -19,7 +19,7 @@ package io.delta.workload.log
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 
-import io.delta.workload.JsonUtil
+import io.delta.workload.json.JsonUtil
 import org.apache.commons.io.FileUtils
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
@@ -151,5 +151,24 @@ class CommitLogSuite extends AnyFunSuite with BeforeAndAfterAll {
     val reread = CommitLog.readRaw(tableDir, 1L)
     assert(reread.size == 2)
     assert(reread.last == """{"mystery":"field"}""")
+  }
+
+  test("CommitInfo.fromLine: extracts inCommitTimestamp from a commitInfo line, None otherwise") {
+    assert(CommitInfo.fromLine("""{"commitInfo":{"inCommitTimestamp":1700000000000,"operation":"WRITE"}}""")
+      .flatMap(_.inCommitTimestamp).contains(1700000000000L))
+    // commitInfo without an ICT -> Some(CommitInfo(None))
+    assert(CommitInfo.fromLine("""{"commitInfo":{"operation":"WRITE"}}""")
+      .exists(_.inCommitTimestamp.isEmpty))
+    // not a commitInfo line -> None
+    assert(CommitInfo.fromLine("""{"add":{"path":"f"}}""").isEmpty)
+  }
+
+  test("LastCheckpointInfo: parses version + optional parts (parts bound as Long, no unbox crash)") {
+    val multi = JsonUtil.mapper.readValue(
+      """{"version":5,"parts":3,"size":42}""", classOf[LastCheckpointInfo])
+    assert(multi.version == 5L && multi.parts.contains(3L))
+    val single = JsonUtil.mapper.readValue(
+      """{"version":7,"size":10}""", classOf[LastCheckpointInfo])
+    assert(single.version == 7L && single.parts.isEmpty)
   }
 }

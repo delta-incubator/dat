@@ -37,7 +37,7 @@ class LogReplaySuite extends WorkloadTestSuite("log_replay") {
     sql("DELETE FROM tbl WHERE id = 2")
     val t = registerTable("tbl")
     readSpec(t)
-    readSpec(t, predicate = "id = 2", name = "read_deleted")
+    readSpec(t, predicate = "id = 2", name = Some("read_deleted"))
     snapshotSpec(t)
   }
 

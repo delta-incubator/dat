@@ -17,6 +17,7 @@
 package io.delta.workload.deltaharness
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.types.StructType
 
 /**
  * Platform-specific backing for Delta-internal access.
@@ -36,17 +37,15 @@ trait DeltaHarness {
 }
 
 trait LogView {
-  def update(): SnapshotView
-  def getSnapshotAt(version: Long): SnapshotView
+  def update(): ResolvedSnapshot
+  def getSnapshotAt(version: Long): ResolvedSnapshot
   def checkpoint(): Unit
 }
 
-trait SnapshotView {
+trait ResolvedSnapshot {
   def version: Long
-  /** Raw JSON of the Protocol action, e.g. `{"protocol":{"minReaderVersion":...}}`. */
-  def protocolJson: String
-  /** Raw JSON of the Metadata action, e.g. `{"metaData":{"id":...}}`. */
-  def metadataJson: String
+  /** Typed protocol + metadata for this snapshot. */
+  def snapshot: Snapshot
   /**
    * All active add-file actions. Canonical columns:
    *  - `path` (String)
@@ -59,6 +58,29 @@ trait SnapshotView {
    */
   def allFiles: DataFrame
 }
+
+// Neutral typed view of a snapshot's protocol + metadata. SPI-side types (no dependency on
+// io.delta.workload): `StructType` is Spark, the rest are plain Scala, so the engine boundary
+// hands back types, not JSON for callers to re-parse.
+case class Protocol(
+    minReaderVersion: Int,
+    minWriterVersion: Int,
+    readerFeatures: Option[Seq[String]],
+    writerFeatures: Option[Seq[String]])
+
+case class Format(provider: String, options: Map[String, String])
+
+case class Metadata(
+    id: String,
+    name: Option[String],
+    description: Option[String],
+    format: Format,
+    schema: StructType,
+    partitionColumns: Seq[String],
+    createdTime: Option[Long],
+    configuration: Map[String, String])
+
+case class Snapshot(version: Long, protocol: Protocol, metadata: Metadata)
 
 object DeltaHarness {
   private val DefaultClass = "io.delta.workload.deltaharness.DeltaSparkHarness"

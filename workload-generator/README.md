@@ -32,9 +32,6 @@ WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly io.delta.workload.tables.*"
 
 # Run a specific test
 WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite -- -t read_basic"
-
-# Force regeneration (even if output exists)
-WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite"
 ```
 
 ## Architecture
@@ -60,7 +57,6 @@ WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite
 │     - Execute against copied table                                  │
 │     - Capture results/expected data                                 │
 │     - Validate by re-execution                                      │
-│     - Write spec JSON + expected data                               │
 │  3. Write table_info.json                                           │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
@@ -81,12 +77,14 @@ WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite
 | Component | Purpose |
 |-----------|---------|
 | `WorkloadTestSuite` | ScalaTest base class with workload generation integration |
-| `WorkloadOps` | DSL trait: `sql()`, `registerTable()`, `readSpec()`, `snapshotSpec()` |
-| `WorkloadGenerator` | Orchestrates table copy, spec capture, and validation |
+| `WorkloadOps` | DSL trait (pass-through over `WorkloadContext`): `sql()`, `registerTable()`, `readSpec()` |
+| `WorkloadContext` | DSL state: tracks created tables and declared specs |
+| `WorkloadGenerator` | Orchestrates table copy, spec capture, and self-validation |
+| `WorkloadValidator` | Replays/validates a generated workload tree; presubmit acceptance entry point |
 | `ReadCapture` | Captures read specs with expected row data |
 | `SnapshotCapture` | Captures snapshot specs with protocol/metadata |
 | `TableInfoWriter` | Writes table metadata (schema, protocol, stats) |
-| `JsonUtil` | Shared JSON utilities, multiset comparison |
+| `JsonUtil` | Shared JSON utilities, typed row comparison |
 
 ## Writing a Suite
 
@@ -168,7 +166,7 @@ If you're implementing a Delta engine and want to use these workloads for accept
 
 1. Discovering and filtering workloads
 2. Implementing each spec type handler
-3. Multiset row comparison
+3. Typed row comparison (schema equality + bag-semantics row diff)
 4. Error-spec handling (assert that an error occurs, not a specific code)
 5. CI integration
 6. Incremental adoption strategy
@@ -199,7 +197,4 @@ Failed tests auto-cleanup their output. Just re-run:
 WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite"
 ```
 
-Use `WORKLOAD_FORCE=true` to regenerate all tests (including passed ones):
-```bash
-WORKLOAD_FORCE=true WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite"
-```
+Every run regenerates and validates the workloads; an existing output directory is overwritten.

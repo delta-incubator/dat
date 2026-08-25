@@ -9,11 +9,11 @@ All specs follow the same top-level pattern:
   "type": "<spec_type>",
   ...operation parameters...,
   "expected": { ...success expectations... },
-  "expectedError": { "errorCode": "...", "errorMessage": "..." }
+  "error": { "errorCode": "...", "errorMessage": "..." }
 }
 ```
 
-Exactly one of `expected` or `expectedError` is present. The other is omitted (not `null`).
+Exactly one of `expected` or `error` is present. The other is omitted (not `null`).
 
 ---
 
@@ -85,7 +85,7 @@ Tests reading data from a Delta table with optional time travel, predicate pushd
 | `predicate` | `string` | no | SQL WHERE clause to apply (e.g., `"id > 5"`) |
 | `columns` | `string[]` | no | Columns to select (projection pushdown) |
 | `expected` | `ReadExpected` | no | Present on success |
-| `expectedError` | `SpecError` | no | Present on expected failure |
+| `error` | `SpecError` | no | Present on expected failure |
 
 Only one of `version` or `timestamp` may be set.
 
@@ -103,7 +103,7 @@ The relationship `fileCount + filesSkipped = total files in table at that versio
 
 When `expected` is present, the directory `expected/<spec_name>/` contains:
 
-- **`expected_data/`** — Parquet files with the exact rows the read should return. Row order is irrelevant; comparison is multiset-based (each row appears the correct number of times). Capped at 5,000,000 rows.
+- **`expected_data/`** — Parquet files with the exact rows the read should return. Row order is irrelevant; comparison is a typed row bag (schemas must match by name and type; each row appears the correct number of times). Capped at 5,000,000 rows.
 - **`expected_metadata/`** — Parquet file with one column `action` containing the JSON `AddFile` actions for files that were scanned (not skipped). Use this to validate data skipping behavior.
 
 ### Examples
@@ -199,7 +199,7 @@ When `expected` is present, the directory `expected/<spec_name>/` contains:
 {
   "type": "read",
   "version": 999,
-  "expectedError": {
+  "error": {
     "errorCode": "DELTA_VERSION_NOT_FOUND",
     "errorMessage": "Cannot find version 999"
   }
@@ -211,7 +211,7 @@ When `expected` is present, the directory `expected/<spec_name>/` contains:
 ```json
 {
   "type": "read",
-  "expectedError": {
+  "error": {
     "errorCode": "DELTA_UNSUPPORTED_FEATURES_FOR_READ",
     "errorMessage": "Required reader features not supported: [futureFeature]"
   }
@@ -223,7 +223,7 @@ When `expected` is present, the directory `expected/<spec_name>/` contains:
 ```json
 {
   "type": "read",
-  "expectedError": {
+  "error": {
     "errorCode": "FAILED_READ_FILE",
     "errorMessage": "Failed to read file: part-00000-abc.parquet"
   }
@@ -246,7 +246,7 @@ Tests constructing a table snapshot at a given version, validating the protocol 
 | `version` | `long` | no | Snapshot at this version (latest if omitted and no timestamp) |
 | `timestamp` | `string` | no | Snapshot at this timestamp |
 | `expected` | `SnapshotExpected` | no | Present on success |
-| `expectedError` | `SpecError` | no | Present on expected failure |
+| `error` | `SpecError` | no | Present on expected failure |
 
 ### SnapshotExpected
 
@@ -338,7 +338,7 @@ These are the raw Delta protocol and metadata JSON structures — not simplified
 ```json
 {
   "type": "snapshot",
-  "expectedError": {
+  "error": {
     "errorCode": "DELTA_UNSUPPORTED_FEATURES_FOR_READ",
     "errorMessage": "Table requires reader feature 'unknownFeature' which is not supported"
   }
