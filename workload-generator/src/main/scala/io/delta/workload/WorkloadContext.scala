@@ -23,6 +23,7 @@ import scala.collection.mutable
 import org.apache.spark.sql.SparkSession
 
 import io.delta.workload.deltaharness.DeltaHarness
+import io.delta.workload.write.WriteSpecBuilder
 
 // ---------------------------------------------------------------------------
 // WorkloadContext: the user's interface inside a workload() block
@@ -82,6 +83,17 @@ class WorkloadContext private[workload] (
   def forceCheckpoint(tableName: String): Unit = {
     val loc = spark.sql(s"DESCRIBE DETAIL `$tableName`").collect()(0).getAs[String]("location")
     DeltaHarness.get.openLog(spark, loc).checkpoint()
+  }
+
+  // ---- Write specs ----
+
+  private val _writeBuilders = mutable.HashMap[String, WriteSpecBuilder]()
+
+  private[workload] def getWriteBuilder(table: TableHandle): WriteSpecBuilder = {
+    val key = s"${workloadName}_${table.tableName}"
+    val builder = _writeBuilders.getOrElseUpdate(key, new WriteSpecBuilder())
+    getTableSpec(table).writeBuilder = Some(builder)
+    builder
   }
 
   // ---- Auto-naming ----

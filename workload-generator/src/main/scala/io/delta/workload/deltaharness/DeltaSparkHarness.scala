@@ -16,15 +16,68 @@
 
 package io.delta.workload.deltaharness
 
+import scala.collection.mutable
+
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.delta.{DeltaLog, Snapshot => DeltaSnapshot}
+import org.apache.spark.sql.delta.{DeltaLog, DeltaOperations, Snapshot => DeltaSnapshot}
+import org.apache.spark.sql.delta.actions.{Action, AddFile, DomainMetadata, FileAction, SetTransaction}
 // Hide Spark's types.Metadata so the unqualified `Metadata` is this package's typed case class.
 import org.apache.spark.sql.types.{Metadata => _, _}
 
-class DeltaSparkHarness extends DeltaHarness {
+class DeltaSparkHarness extends SparkRowMaterializer {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
     DeltaLog.clearCache()
     new DeltaSparkLogView(DeltaLog.forTable(spark, tablePath))
+  }
+
+  override def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Seq[String] = {
+    DeltaLog.clearCache()
+    val deltaLog = DeltaLog.forTable(spark, tablePath)
+    val txn = deltaLog.startTransaction()
+    val now = System.currentTimeMillis()
+
+    // Metadata (schema/properties) is updated first so writeFiles writes against the new schema.
+    if (req.schemaJson.isDefined || req.properties.isDefined) {
+      val current = txn.metadata
+      txn.updateMetadata(current.copy(
+        schemaString = req.schemaJson.getOrElse(current.schemaString),
+        configuration = req.properties.map(current.configuration ++ _).getOrElse(current.configuration)))
+    }
+
+    // Engine-written data files: column mapping / partitioning / stats all handled by writeFiles.
+    // Commit ALL file actions it returns (AddFile + AddCDCFile when change data feed is enabled);
+    // only the AddFile paths are returned (for ordinal-based remove resolution).
+    val fileActions: Seq[FileAction] = req.addDataParquet.flatMap { p =>
+      txn.writeFiles(spark.read.parquet(p))
+    }
+
+    val manual = mutable.ArrayBuffer[Action]()
+    req.setTransaction.foreach { t => manual += SetTransaction(t.appId, t.version, Some(now)) }
+
+    if (req.removeFiles.nonEmpty) {
+      // Tombstone the matching ACTIVE file so the RemoveFile inherits its partitionValues/size/
+      // stats (extendedFileMetadata) — column-mapping- and partition-correct, derived not guessed.
+      val active = txn.snapshot.allFiles.collect().map(a => a.path -> a).toMap
+      req.removeFiles.foreach { rf =>
+        val add = active.getOrElse(rf.path, throw new IllegalStateException(
+          s"removeFiles references a path not active in the table: ${rf.path}"))
+        manual += add.removeWithTimestamp(now, rf.dataChange)
+      }
+    }
+
+    req.addDomainMetadata.foreach { dm => manual += DomainMetadata(dm.domain, dm.configuration, removed = false) }
+    req.removeDomainMetadata.foreach { domain => manual += DomainMetadata(domain, "", removed = true) }
+
+    txn.commit(fileActions ++ manual.toSeq, DeltaOperations.ManualUpdate)
+    DeltaLog.clearCache()
+    fileActions.collect { case a: AddFile => a.path }
+  }
+
+  override def schemaAt(
+      spark: SparkSession, tablePath: String, version: Option[Long]): StructType = {
+    val log = openLog(spark, tablePath)
+    val snapshot = version.map(log.getSnapshotAt).getOrElse(log.update())
+    snapshot.snapshot.metadata.schema
   }
 }
 

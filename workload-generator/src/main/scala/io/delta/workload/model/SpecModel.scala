@@ -96,7 +96,8 @@ case class SnapshotQuery(
   property = "type", visible = true)
 @JsonSubTypes(Array(
   new JsonSubTypes.Type(value = classOf[ReadSpec], name = "read"),
-  new JsonSubTypes.Type(value = classOf[SnapshotSpec], name = "snapshot")))
+  new JsonSubTypes.Type(value = classOf[SnapshotSpec], name = "snapshot"),
+  new JsonSubTypes.Type(value = classOf[WriteSpec], name = "write")))
 sealed trait Spec { def `type`: String }
 
 @JsonSerialize(using = classOf[ReadSpecSerializer])
@@ -110,6 +111,14 @@ case class ReadSpec(query: ReadQuery, expectation: SpecExpectation[ReadResult]) 
 case class SnapshotSpec(query: SnapshotQuery, expectation: SpecExpectation[SnapshotResult])
     extends Spec {
   val `type`: String = "snapshot"
+}
+
+// `WriteSpec` must live beside the sealed `Spec` trait (Scala requires sealed subtypes in the same
+// file); the rest of the write model — the `WriteCommit` ADT and the low-level action types — lives
+// in WriteModel.scala.
+@JsonPropertyOrder(Array("type", "commits"))
+case class WriteSpec(commits: Seq[WriteCommit]) extends Spec {
+  val `type`: String = "write"
 }
 
 /** The spec outcome: `Succeeded { expected } | Failed { error }`. */

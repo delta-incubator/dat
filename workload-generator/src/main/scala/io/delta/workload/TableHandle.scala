@@ -57,3 +57,14 @@ class TableHandle private[workload] (
     java.time.Instant.ofEpochMilli(tsMillis)
   }
 }
+
+/**
+ * Handle for structured write operations. Obtained from [[WorkloadContext.createTableOp]]
+ * (which creates the table and records the create) or [[WorkloadContext.beginWrite]]
+ * (which wraps an already-created [[TableHandle]]).
+ *
+ * Accepts write operations (insertOp, updateOp, deleteOp, ...) that both execute SQL
+ * and record the commit. Call [[WorkloadContext.endWrite]] to finalize and
+ * obtain a [[TableHandle]] for declaring read/snapshot specs.
+ */
+class WriteHandle private[workload] (private[workload] val table: TableHandle)

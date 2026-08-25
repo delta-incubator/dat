@@ -16,8 +16,42 @@
 
 package io.delta.workload.deltaharness
 
+import java.nio.file.Path
+
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.types.StructType
+
+import io.delta.workload.model.{AddDomainMetadata, AppTxn}
+
+/**
+ * A remove-file action (tombstone) for a low-level commit, by in-table `path`. The implementation
+ * tombstones the matching active file via the engine, so the tombstone inherits its
+ * `partitionValues`/`size`/`stats` (column-mapping- and partition-correct) — the caller supplies
+ * only the path and the `dataChange` flag.
+ */
+case class CommitRemoveFile(path: String, dataChange: Boolean)
+
+/**
+ * A platform-neutral description of a low-level commit. Carries only plain Scala types and the
+ * generator's neutral action case classes, never `org.apache.spark.sql.delta.*`.
+ *
+ * @param addDataParquet       Parquet files of LOGICAL rows to add; the engine reads each and writes
+ *                             it into the table (column-mapping aware, computing stats/layout)
+ * @param schemaJson           `StructType.json` to set as `metadata.schemaString`, or None to keep
+ * @param properties           properties merged into `metadata.configuration`, or None to keep
+ * @param setTransaction       optional `SetTransaction` (appId/version) action
+ * @param removeFiles          remove-file actions to tombstone (by in-table path)
+ * @param addDomainMetadata    domain-metadata entries to add
+ * @param removeDomainMetadata domain names to tombstone
+ */
+case class CommitRequest(
+    addDataParquet: Seq[String] = Nil,
+    schemaJson: Option[String] = None,
+    properties: Option[Map[String, String]] = None,
+    setTransaction: Option[AppTxn] = None,
+    removeFiles: Seq[CommitRemoveFile] = Nil,
+    addDomainMetadata: Seq[AddDomainMetadata] = Nil,
+    removeDomainMetadata: Seq[String] = Nil)
 
 /**
  * Platform-specific backing for Delta-internal access.
@@ -34,6 +68,31 @@ trait DeltaHarness {
    * cache management an adapter-internal concern.
    */
   def openLog(spark: SparkSession, tablePath: String): LogView
+
+  /**
+   * Open a transaction at `tablePath`, apply the metadata update (schema/properties) if present,
+   * write any `req.addDataParquet` data files through the engine's own write path (honoring column
+   * mapping and partitioning, computing stats), and commit the produced AddFile actions together
+   * with `req`'s other actions in one `DeltaOperations.ManualUpdate`.
+   *
+   * Implementations MUST clear any internal DeltaLog cache before and after committing, mirroring
+   * the `openLog` cache-clearing contract so consumers always see a fresh view.
+   *
+   * @return the in-table `AddFile.path`s the engine produced (in `addDataParquet` order; a file
+   *         may yield several adds when partitioned), so callers can reference them later.
+   */
+  def commit(spark: SparkSession, tablePath: String, req: CommitRequest): Seq[String]
+
+  /** The table's schema at `version` (latest if None). */
+  def schemaAt(spark: SparkSession, tablePath: String, version: Option[Long]): StructType
+
+  /**
+   * Materialize in-memory `rows` (the workload-generator's authoring surface) into a single Parquet
+   * file at `dest`, coercing each value to the corresponding column type in `schema`. Capture writes
+   * rows here at generation time — no Delta-log scan — and replay reads the produced files back.
+   */
+  def writeRows(
+      spark: SparkSession, schema: StructType, rows: Seq[Map[String, Any]], dest: Path): Unit
 }
 
 trait LogView {

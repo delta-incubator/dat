@@ -207,6 +207,14 @@ Any spec type can have `"error"` instead of `"expected"`:
 
 Run the operation and assert it fails. Matching the exact error code is ideal but optional — just asserting failure is a valid starting point.
 
+### Write Specs
+
+A `write` spec (`specs/<name>_write.json`) is a portable recipe for *building* a table: an ordered list of `commits` your harness replays into a fresh table. High-level commits (create/replace/insert/delete/update/schema-evolution/properties) are replayed through your engine's normal write APIs; low-level `commit`s carry raw actions (the data files hold logical rows your engine writes through its own write path, so physical names/stats are engine-derived, and removes reference a prior add by commit ordinal == table version). See the [Write Spec reference](spec-reference.md#write-spec) for the field-level contract.
+
+The write spec has no expected-data artifact of its own. Its own check is **basic**: the replay must succeed and produce the expected number of versions (`finalVersion == commits.size - 1`). The final-state rows are validated by an auto-generated baseline read spec named `latest` (`specs/<name>_latest.json` with rows under `expected/<name>_latest/expected_data/`), and per-version protocol/metadata by the snapshot spec(s).
+
+Because a write spec is replayed (not byte-compared), comparison is **portable**: rows-only data checks, capability-based protocol comparison (your table may use explicit table features where Spark used legacy versions), and column-mapping-normalized schema. A write spec's presence makes its whole directory *write-derived*: replay it into a fresh table once, then validate every read/snapshot spec in that directory (including the baseline `latest` read) against the replay (portably), rather than against a captured `delta/` directory.
+
 ---
 
 ## Step 4: Incremental Adoption

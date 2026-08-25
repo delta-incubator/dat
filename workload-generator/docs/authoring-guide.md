@@ -92,8 +92,32 @@ Inside a test body, these methods are available directly (via `WorkloadOps` trai
 | SQL | `sql(statement)` | — |
 | Table handles | `registerTable(name)`, `registerTableFromPath(path)` | → `TableHandle` |
 | Read specs | `readSpec(t, ...)`, `snapshotSpec(t, ...)` | `TableHandle` → `SpecRef` |
+| Write specs | `createTableOp`, `replaceTableOp`, `insertOp`, `deleteOp`, `updateOp`, `addColumnsOp`, `renameColumnOp`, `dropColumnsOp`, `setPropertiesOp`, `unsetPropertiesOp`, `commitOp` (low-level) | → `WriteHandle`; `registerWriteSpec(w)` → `TableHandle` |
 | Checkpointing | `forceCheckpoint(tableName)` — triggers a checkpoint via DeltaLog | — |
 | Mutations | `mutateTable(t) { dir => ... }`, `modifyCommitActions(t, version) { ... }` | `TableHandle` |
+
+### Authoring a write workload
+
+A write workload builds a table through DSL ops instead of raw `sql(...)`, producing a portable `write` spec (`specs/<name>_write.json`) plus any `read`/`snapshot` specs derived from the built table. Start with `createTableOp` (or `replaceTableOp`), apply ops, then `registerWriteSpec(w)` to get a `TableHandle` you can attach reads/snapshots to:
+
+```scala
+import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
+
+val schema = new StructType().add("id", IntegerType).add("name", StringType)
+val w = createTableOp("tbl", schema = schema)
+insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
+// Low-level commit: logical rows are written through the engine (stats/partitionValues derived).
+commitOp(w, addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
+val t = registerWriteSpec(w)
+readSpec(t, name = "read_all")
+snapshotSpec(t)
+```
+
+The write-op schema inputs (`createTableOp`, `replaceTableOp`, `addColumnsOp`, and `commitOp`'s
+optional `schema`) are Spark `StructType`s, not DDL strings. The generator stores them as Delta
+schema JSON in the spec.
+
+`commitOp` returns the commit's ordinal (== table version); a later `removeFiles = Some(Seq(ordinal))` tombstones the files that commit added. See `WriteBasicSuite`/`WriteCommitSuite`/`WriteSequencesSuite` for worked examples and the [Write Spec reference](spec-reference.md#write-spec) for the on-disk format.
 
 ---
 

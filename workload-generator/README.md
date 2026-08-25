@@ -8,7 +8,7 @@ Write a script that creates Delta tables with normal SQL, declare what specs to 
 
 | Document | Description |
 |----------|-------------|
-| **[Spec Format Reference](docs/spec-reference.md)** | JSON schema for the `read` and `snapshot` spec types, with examples |
+| **[Spec Format Reference](docs/spec-reference.md)** | JSON schema for the `read`, `snapshot`, and `write` spec types, with examples |
 | **[Harness Implementation Guide](docs/harness-implementation-guide.md)** | Step-by-step guide to build a test harness that runs workloads against your engine, with a Rust example |
 | **[Authoring Guide](docs/authoring-guide.md)** | How to write new workload suites, patterns, recipes, and debugging tips |
 
@@ -57,6 +57,7 @@ WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite -- -t read_basic"
 │     - Execute against copied table                                  │
 │     - Capture results/expected data                                 │
 │     - Validate by re-execution                                      │
+│     - Write spec JSON + expected data                               │
 │  3. Write table_info.json                                           │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
@@ -77,8 +78,8 @@ WORKLOAD_OUTPUT_DIR=/tmp/workloads sbt "testOnly *ReadsSuite -- -t read_basic"
 | Component | Purpose |
 |-----------|---------|
 | `WorkloadTestSuite` | ScalaTest base class with workload generation integration |
-| `WorkloadOps` | DSL trait (pass-through over `WorkloadContext`): `sql()`, `registerTable()`, `readSpec()` |
-| `WorkloadContext` | DSL state: tracks created tables and declared specs |
+| `WorkloadOps` | DSL trait (pass-through over `WorkloadContext`): `sql()`, `registerTable()`, `readSpec()`, write ops |
+| `WorkloadContext` | DSL state: tracks created tables, declared specs, and write builders |
 | `WorkloadGenerator` | Orchestrates table copy, spec capture, and self-validation |
 | `WorkloadValidator` | Replays/validates a generated workload tree; presubmit acceptance entry point |
 | `ReadCapture` | Captures read specs with expected row data |
@@ -155,6 +156,9 @@ See the [Spec Format Reference](docs/spec-reference.md) for the complete JSON sc
 |------|--------------|---------|
 | **Read** | Data reads with time travel, predicates, column projection, data skipping | [Reference](docs/spec-reference.md#read-spec) |
 | **Snapshot** | Protocol and metadata reconstruction from log replay | [Reference](docs/spec-reference.md#snapshot-spec) |
+| **Write** | Table construction via a portable sequence of commits (create/replace/insert/delete/update/schema-evolution/properties and low-level `commit`s), replayed into a fresh table | [Reference](docs/spec-reference.md#write-spec) |
+
+The write DSL (`createTableOp`, `insertOp`, `commitOp`, …) is exposed by `WorkloadOps`; see the [Authoring Guide](docs/authoring-guide.md) for how to author write workloads. There is no per-spec `writeSpec` pointer: whether the `read`/`snapshot` specs in a directory validate against the captured `delta/` table or against a replay of the sibling write spec is decided per directory — if a `*_write.json` is present, they are validated *portably* against the replay (replay the write spec into a fresh table, then compare).
 
 ## Workload Suites
 
