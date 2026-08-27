@@ -29,6 +29,50 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
 
   private def idName = new StructType().add("id", IntegerType).add("name", StringType)
 
+  // Runnable checkpoint cases: create + high-level DML only (no low-level commit), so a write
+  // harness can reproduce the whole table and then force + verify a checkpoint at the tip version.
+  test("checkpoint_basic") {
+    val w = createTableOp("tbl", idName)
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "a"), Map("id" -> 2, "name" -> "b"))) // v1
+    insertOp(w, Seq(Map("id" -> 3, "name" -> "c"))) // v2
+    val t = endWrite(w)
+    checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
+  }
+
+  test("checkpoint_v2") {
+    val w = createTableOp("tbl", idName,
+      properties = Map("delta.checkpointPolicy" -> "v2", "delta.enableDeletionVectors" -> "true"))
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "a"), Map("id" -> 2, "name" -> "b"))) // v1
+    insertOp(w, Seq(Map("id" -> 3, "name" -> "c"))) // v2
+    val t = endWrite(w)
+    checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
+  }
+
+  test("checkpoint_after_dml") {
+    val w = createTableOp("tbl", idName,
+      properties = Map("delta.enableDeletionVectors" -> "true"))
+    insertOp(w, (1 to 4).map(i => Map("id" -> i, "name" -> s"n$i"))) // v1
+    updateOp(w, predicate = "id <= 2", set = Map("name" -> "'updated'")) // v2
+    deleteOp(w, predicate = "id = 4") // v3
+    val t = endWrite(w)
+    checkpointSpec(t, version = 3)
+    snapshotSpec(t)
+    readSpec(t)
+  }
+
+  test("checkpoint_many_commits") {
+    val w = createTableOp("tbl", idName)
+    for (i <- 1 to 6) insertOp(w, Seq(Map("id" -> i, "name" -> s"n$i"))) // v1..v6
+    val t = endWrite(w)
+    checkpointSpec(t, version = 6)
+    snapshotSpec(t)
+    readSpec(t)
+  }
+
   test("checkpoint_partitioned") {
     val schema = new StructType().add("id", IntegerType).add("part", IntegerType)
     val w = createTableOp("tbl", schema, partitionColumns = Seq("part"))
@@ -36,6 +80,8 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     insertOp(w, Seq(Map("id" -> 3, "part" -> 0))) // v2
     val t = endWrite(w)
     checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
   }
 
   test("checkpoint_with_set_transaction") {
@@ -45,6 +91,7 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     val t = endWrite(w)
     checkpointSpec(t, version = 2)
     snapshotSpec(t)
+    readSpec(t)
   }
 
   test("checkpoint_with_domain_metadata") {
@@ -55,6 +102,7 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     val t = endWrite(w)
     checkpointSpec(t, version = 2)
     snapshotSpec(t)
+    readSpec(t)
   }
 
   test("crc_with_deletion_vectors") {
