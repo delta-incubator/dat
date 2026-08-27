@@ -28,7 +28,7 @@ import scala.util.control.NonFatal
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 
-import io.delta.workload.capture.{ReadCapture, SnapshotCapture}
+import io.delta.workload.capture.{CdfCapture, CheckpointCapture, CrcCapture, ReadCapture, SnapshotCapture}
 import io.delta.workload.json.JsonUtil
 import io.delta.workload.model._
 import io.delta.workload.write.WriteReplay
@@ -121,9 +121,9 @@ object WorkloadValidator {
         else SpecFailed(id, s"read-only spec but no captured table at $deltaTable")
       try spec match {
         case _: WriteSpec =>
-          // Basic validation: triggering the replay (queryTarget) reconstructs the table and
-          // asserts replay succeeds + finalVersion == commits.size-1. Row content is checked by
-          // the baseline 'latest' read spec; per-version metadata by the snapshot spec.
+          // Triggering the replay reconstructs the table and asserts replay succeeds +
+          // finalVersion == commits.size-1. Rows are checked by the baseline read spec, per-version
+          // metadata by the snapshot spec, and per-file stats by the separate stats pass below.
           val _ = queryTarget; SpecPassed(id)
         case _: ReadSpec =>
           val expectedDir = testDir.resolve("expected").resolve(bare)
@@ -135,13 +135,37 @@ object WorkloadValidator {
           if (writeDerived) {
             SnapshotCapture.validateFromSpec(spark, queryTarget, specFile, isWriteValidation = true); SpecPassed(id)
           } else readOnly(t => SnapshotCapture.validateFromSpec(spark, t, specFile))
+        case _: CdfSpec =>
+          val expectedDir = testDir.resolve("expected").resolve(bare)
+          if (writeDerived) {
+            CdfCapture.validateFromSpec(spark, queryTarget, expectedDir, specFile); SpecPassed(id)
+          } else readOnly(t => CdfCapture.validateFromSpec(spark, t, expectedDir, specFile))
+        case _: CheckpointSpec =>
+          if (writeDerived) {
+            CheckpointCapture.validateFromSpec(spark, queryTarget, specFile, isWriteValidation = true)
+            SpecPassed(id)
+          } else readOnly(t => CheckpointCapture.validateFromSpec(spark, t, specFile))
+        case _: CrcSpec =>
+          if (writeDerived) {
+            CrcCapture.validateFromSpec(spark, queryTarget, specFile, isWriteValidation = true)
+            SpecPassed(id)
+          } else readOnly(t => CrcCapture.validateFromSpec(spark, t, specFile))
       } catch {
         case e: Throwable => SpecFailed(id, e.toString)
       }
     }
 
-    try outcomes ++= parsed.map { case (f, spec) => validateOne(f, spec) }
-    finally tempDirs.foreach(td => try FileUtils.deleteDirectory(td.toFile) catch { case NonFatal(_) => })
+    try {
+      outcomes ++= parsed.map { case (f, spec) => validateOne(f, spec) }
+      if (writeDerived) {
+        val statsId = s"${testDir.getFileName}/stats"
+        outcomes += (try {
+          val findings = StatsValidator.validate(spark, queryTarget)
+          if (findings.isEmpty) SpecPassed(statsId)
+          else SpecFailed(statsId, s"stats: ${findings.mkString("; ")}")
+        } catch { case NonFatal(e) => SpecFailed(statsId, e.toString) })
+      }
+    } finally tempDirs.foreach(td => try FileUtils.deleteDirectory(td.toFile) catch { case NonFatal(_) => })
     ValidationResult(outcomes.toSeq)
   }
 

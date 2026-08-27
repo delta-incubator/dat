@@ -51,10 +51,12 @@ trait SparkRowMaterializer extends DeltaHarness {
   }
 
   /**
-   * Coerce a row's value to the column's Spark type. `None`/`null` -> SQL NULL. Unknown types
-   * fail loud rather than passing the raw value through: a silent passthrough that Spark happens
-   * to accept could write a wrong-but-symmetric value (wrong on both capture AND replay), which
-   * the row comparison would not catch: a false pass.
+   * Coerce a row's value to the column's Spark type. `None`/`null` -> SQL NULL. Recurses into
+   * struct/array/map values: a nested Scala `Map` becomes a Spark `Row`, a `Seq` becomes a Spark
+   * array, and a keyed `Map` becomes a Spark map. Unknown types fail loud rather than passing the
+   * raw value through: a silent passthrough that Spark happens to accept could write a
+   * wrong-but-symmetric value (wrong on both capture AND replay), which the row comparison would
+   * not catch: a false pass.
    */
   private def coerce(value: Option[Any], dataType: DataType): Any =
     value.flatMap(Option(_)) match {
@@ -95,6 +97,21 @@ trait SparkRowMaterializer extends DeltaHarness {
         case _: BinaryType => v match {
           case b: Array[Byte] => b
           case s: String => java.util.Base64.getDecoder.decode(s)
+          case _ => unsupported(v, dataType)
+        }
+        case st: StructType => v match {
+          case m: Map[_, _] =>
+            val fields = m.asInstanceOf[Map[String, Any]]
+            Row.fromSeq(st.fields.map(f => coerce(fields.get(f.name), f.dataType)))
+          case _ => unsupported(v, dataType)
+        }
+        case at: ArrayType => v match {
+          case s: Seq[_] => s.map(e => coerce(Option(e), at.elementType))
+          case _ => unsupported(v, dataType)
+        }
+        case mt: MapType => v match {
+          case m: Map[_, _] =>
+            m.map { case (k, vv) => coerce(Option(k), mt.keyType) -> coerce(Option(vv), mt.valueType) }
           case _ => unsupported(v, dataType)
         }
         case _ => unsupported(v, dataType)
