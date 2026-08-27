@@ -103,6 +103,66 @@ trait WorkloadOps {
     new SpecRef(config)
   }
 
+  /**
+   * Change Data Feed spec over a version/timestamp range. Requires a start bound
+   * (`startVersion` or `startTimestamp`).
+   */
+  def cdfSpec(
+      table: TableHandle,
+      startVersion: java.lang.Long = null,
+      endVersion: java.lang.Long = null,
+      startTimestamp: String = null,
+      endTimestamp: String = null,
+      predicate: String = null,
+      columns: Seq[String] = null,
+      name: String = null,
+      expectError: String = null): SpecRef[CdfSpec] = {
+    val ctx = WorkloadContext.current
+    val specName = if (name != null) name else ctx.autoCdfName(
+      ctx.toOption(startVersion), ctx.toOption(endVersion), Option(startTimestamp),
+      Option(endTimestamp), Option(predicate), Option(columns))
+    ctx.requireUnique(table, specName)
+    val config = CdfSpecConfig(
+      specName, ctx.toOption(startVersion), ctx.toOption(endVersion), Option(startTimestamp),
+      Option(endTimestamp), Option(predicate), Option(columns), Option(expectError))
+    ctx.getTableSpec(table).cdfSpecs += config
+    new SpecRef(config)
+  }
+
+  /**
+   * Checkpoint spec. Forces a checkpoint at `version` and asserts the reconstructed
+   * protocol/metadata/txn/domain-metadata state, recorded inline in the spec JSON.
+   * Targets classic V1 single-file checkpoints.
+   */
+  def checkpointSpec(
+      table: TableHandle,
+      version: Long,
+      name: String = null): SpecRef[CheckpointSpec] = {
+    val ctx = WorkloadContext.current
+    val specName = if (name != null) name else s"checkpoint_v$version"
+    ctx.requireUnique(table, specName)
+    val config = CheckpointSpecConfig(specName, version)
+    ctx.getTableSpec(table).checkpointSpecs += config
+    new SpecRef(config)
+  }
+
+  /**
+   * CRC (version-checksum) spec. Reads the `<version>.crc` file and asserts its core
+   * aggregate fields (plus protocol and any present optional fields), recorded inline
+   * in the spec JSON.
+   */
+  def crcSpec(
+      table: TableHandle,
+      version: Long,
+      name: String = null): SpecRef[CrcSpec] = {
+    val ctx = WorkloadContext.current
+    val specName = if (name != null) name else s"crc_v$version"
+    ctx.requireUnique(table, specName)
+    val config = CrcSpecConfig(specName, version)
+    ctx.getTableSpec(table).crcSpecs += config
+    new SpecRef(config)
+  }
+
   /** Force Spark to write a checkpoint file for the given SQL table name. */
   def forceCheckpoint(tableName: String): Unit = current.forceCheckpoint(tableName)
 

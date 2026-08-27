@@ -111,7 +111,7 @@ object ReadCapture {
 
   def validateFromSpec(spark: SparkSession, tablePath: Path,
       expectedDir: Path, specPath: Path, checkMetadata: Boolean = true): Unit = {
-    val spec = JsonUtil.readReadSpec(specPath)
+    val spec = JsonUtil.readSpecAs(specPath, classOf[ReadSpec])
     val specName = specPath.getFileName.toString.stripSuffix(".json")
     val harness = DeltaHarness.get
 
