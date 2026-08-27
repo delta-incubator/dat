@@ -579,7 +579,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
   test("cp_v2") {
     sql("""CREATE TABLE tbl (id INT, name STRING) USING delta
       TBLPROPERTIES ('delta.checkpointPolicy' = 'v2',
-        'delta.enableDeletionVectors' = 'trque')""")
+        'delta.enableDeletionVectors' = 'true')""") 
     sql("INSERT INTO tbl VALUES (1,'a'),(2,'b'),(3,'c')")
     sql("INSERT INTO tbl VALUES (4,'d'),(5,'e')")
     val t = registerTable("tbl")
