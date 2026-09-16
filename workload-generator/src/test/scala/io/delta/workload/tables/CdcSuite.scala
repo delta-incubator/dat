@@ -21,7 +21,7 @@ import io.delta.workload.WorkloadTestSuite
 /**
  * Change Data Feed workloads. Each test builds a CDF-enabled table across several
  * versions, then declares `cdfSpec`s over version ranges. The captured change rows
- * carry the `_change_type`, `_commit_version`, and `_commit_timestamp` columns.
+ * carry the `_change_type` and `_commit_version` columns.
  */
 class CdcSuite extends WorkloadTestSuite("cdc") {
 

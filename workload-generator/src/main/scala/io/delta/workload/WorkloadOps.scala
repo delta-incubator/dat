@@ -130,9 +130,7 @@ trait WorkloadOps {
   }
 
   /**
-   * Checkpoint spec. Forces a checkpoint at `version` and asserts the reconstructed
-   * protocol/metadata/txn/domain-metadata state, recorded inline in the spec JSON.
-   * Targets classic V1 single-file checkpoints.
+   * Checkpoint spec: a trigger that forces a checkpoint at `version`.
    */
   def checkpointSpec(
       table: TableHandle,
@@ -147,9 +145,7 @@ trait WorkloadOps {
   }
 
   /**
-   * CRC (version-checksum) spec. Reads the `<version>.crc` file and asserts its core
-   * aggregate fields (plus protocol and any present optional fields), recorded inline
-   * in the spec JSON.
+   * CRC (version-checksum) spec: a trigger asserting the engine wrote a `<version>.crc` at `version`.
    */
   def crcSpec(
       table: TableHandle,

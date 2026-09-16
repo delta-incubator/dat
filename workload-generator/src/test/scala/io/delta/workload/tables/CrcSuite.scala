@@ -19,10 +19,8 @@ package io.delta.workload.tables
 import io.delta.workload.WorkloadTestSuite
 
 /**
- * CRC (version-checksum) read workloads. Delta writes a `<version>.crc` sidecar on each commit;
- * each test builds a table with plain SQL and declares a `crcSpec` asserting the core aggregate
- * fields (tableSizeBytes, numFiles, protocol) plus any feature-gated fields the `.crc` carries
- * (deletion-vector counts, set transactions, inCommitTimestamp).
+ * Version-checksum coverage. `crcSpec` asserts a `<version>.crc` was written; the paired
+ * `snapshotSpec` at that version drives on-read checksum verification of its contents.
  */
 class CrcSuite extends WorkloadTestSuite("crc") {
 
@@ -32,7 +30,7 @@ class CrcSuite extends WorkloadTestSuite("crc") {
     sql("INSERT INTO tbl VALUES (4,'d'),(5,'e')")
     val t = registerTable("tbl")
     crcSpec(t, version = 1)
-    snapshotSpec(t)
+    snapshotSpec(t, version = 1L)
   }
 
   test("crc_partitioned") {
@@ -41,6 +39,7 @@ class CrcSuite extends WorkloadTestSuite("crc") {
     sql("INSERT INTO tbl VALUES (4,1)")
     val t = registerTable("tbl")
     crcSpec(t, version = 1)
+    snapshotSpec(t, version = 1L)
   }
 
   test("crc_after_delete") {
@@ -52,6 +51,7 @@ class CrcSuite extends WorkloadTestSuite("crc") {
     val t = registerTable("tbl")
     // v3 is the delete commit; the trailing insert (v4) makes it non-latest.
     crcSpec(t, version = 3)
+    snapshotSpec(t, version = 3L)
   }
 
   test("crc_with_deletion_vectors") {
@@ -63,6 +63,7 @@ class CrcSuite extends WorkloadTestSuite("crc") {
     val t = registerTable("tbl")
     // v2 is the deletion-vector commit; the trailing insert (v3) makes it non-latest.
     crcSpec(t, version = 2)
+    snapshotSpec(t, version = 2L)
   }
 
   test("crc_multiple_versions") {
@@ -75,5 +76,7 @@ class CrcSuite extends WorkloadTestSuite("crc") {
     // Both targets are non-latest (table ends at v4).
     crcSpec(t, version = 1, name = "crc_v1")
     crcSpec(t, version = 3, name = "crc_v3")
+    snapshotSpec(t, version = 1L)
+    snapshotSpec(t, version = 3L)
   }
 }

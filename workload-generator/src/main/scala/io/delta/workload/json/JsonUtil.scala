@@ -150,20 +150,4 @@ object JsonUtil {
   /** Deserialize any spec by its `type` tag into the sealed [[Spec]]. */
   def readSpec(path: Path): Spec = readSpecAs(path, classOf[Spec])
 
-  // === CRC field accessors (operate on the raw `.crc` JSON tree) ===
-
-  def crcLongField(node: JsonNode, field: String): Option[Long] =
-    Option(node.get(field)).filterNot(_.isNull).map(_.asLong())
-
-  /** Parse the `setTransactions` field of a `.crc`, which may be a single object or an array. */
-  def crcSetTransactions(node: JsonNode): Option[Seq[AppTxn]] =
-    Option(node.get("setTransactions")).filterNot(_.isNull).flatMap { txnNode =>
-      val actions =
-        if (txnNode.isArray) txnNode.elements().asScala.toSeq
-        else if (txnNode.isObject) Seq(txnNode)
-        else Seq.empty
-      if (actions.isEmpty) None
-      else Some(actions.map(t => AppTxn(t.get("appId").asText(), t.get("version").asLong())))
-    }
-
 }

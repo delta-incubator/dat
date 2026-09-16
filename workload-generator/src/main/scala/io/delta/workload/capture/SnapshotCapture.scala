@@ -31,7 +31,7 @@ object SnapshotCapture {
   def capture(
       spark: SparkSession, testId: String, tablePath: Path, specsDir: Path,
       query: SnapshotQuery = SnapshotQuery(),
-      expectError: ErrorExpectation = AutoDetect): Unit = {
+      expectError: ErrorExpectation = AutoDetect): Path = {
 
     require(!(query.version.isDefined && query.timestamp.isDefined),
       "Cannot specify both version and timestamp")
@@ -55,9 +55,13 @@ object SnapshotCapture {
         Failed(SpecError("DELTA_TABLE_NOT_FOUND", s"No valid Delta table at ${tablePath}"))
       } else {
         resolvedVersion = Some(snapshot.version)
+        val txn = snapshot.setTransactions
+        val dm = snapshot.domainMetadata
         Succeeded(SnapshotResult(
           ProtocolInfo.from(snapshot.snapshot.protocol),
-          MetadataInfo.from(snapshot.snapshot.metadata)))
+          MetadataInfo.from(snapshot.snapshot.metadata),
+          setTransactions = if (txn.nonEmpty) Some(txn) else None,
+          domainMetadata = if (dm.nonEmpty) Some(dm) else None))
       }
     }
 
@@ -74,6 +78,7 @@ object SnapshotCapture {
       case Failed(err) =>
         println(s"  Snapshot captured (error): $specName [${err.errorCode}] ${err.errorMessage}")
     }
+    specPath
   }
 
   /**
@@ -100,9 +105,13 @@ object SnapshotCapture {
         if (resolve.version < 0) Some("DELTA_TABLE_NOT_FOUND") else None
       }
     } { exp =>
-      val live = resolve.snapshot
+      val resolved = resolve
+      val live = resolved.snapshot
       assertMatches(exp.protocol, live.protocol,
         exp.metadata, live.metadata, isWriteValidation, specName)
+      requireTxnSubset(specName, exp.setTransactions.getOrElse(Seq.empty), resolved.setTransactions)
+      requireDomainMetadataEqual(specName, exp.domainMetadata.getOrElse(Seq.empty),
+        resolved.domainMetadata)
     }
   }
 
@@ -138,6 +147,17 @@ object SnapshotCapture {
       requireEq("createdTime", expMeta.createdTime, actMeta.createdTime)
     }
   }
+
+  // Expected app txns must all be present; the engine under test may carry extra writer-owned txns
+  // (e.g. its own ingestion idempotency txn) the corpus never had, so this is a subset, not equality.
+  private def requireTxnSubset(name: String, expected: Seq[AppTxn], actual: Seq[AppTxn]): Unit =
+    require(expected.toSet.subsetOf(actual.toSet),
+      s"snapshot '$name': setTransactions mismatch (expected all of $expected present, got $actual)")
+
+  private def requireDomainMetadataEqual(
+      name: String, expected: Seq[AddDomainMetadata], actual: Seq[AddDomainMetadata]): Unit =
+    require(expected.toSet == actual.toSet,
+      s"snapshot '$name': domainMetadata mismatch (expected $expected, got $actual)")
 
   private def stripColumnMappingIds(schema: StructType): StructType =
     stripColumnMapping(schema).asInstanceOf[StructType]

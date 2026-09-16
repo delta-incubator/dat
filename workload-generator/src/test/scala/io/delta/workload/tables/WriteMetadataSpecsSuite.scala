@@ -44,6 +44,7 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     commitOp(w, txn = Some(AppTxn("cp-app", 42L))) // v2
     val t = endWrite(w)
     checkpointSpec(t, version = 2)
+    snapshotSpec(t)
   }
 
   test("checkpoint_with_domain_metadata") {
@@ -53,6 +54,7 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     commitOp(w, addDomainMetadata = Some(Seq(AddDomainMetadata("cpDomain", "{\"k\":\"v\"}")))) // v2
     val t = endWrite(w)
     checkpointSpec(t, version = 2)
+    snapshotSpec(t)
   }
 
   test("crc_with_deletion_vectors") {
@@ -63,6 +65,7 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     deleteOp(w, "id = 2") // v2 -> deletion vector
     val t = endWrite(w)
     crcSpec(t, version = 2)
+    snapshotSpec(t)
   }
 
   test("crc_with_set_transaction") {
@@ -71,6 +74,7 @@ class WriteMetadataSpecsSuite extends WorkloadTestSuite("write_meta") {
     commitOp(w, txn = Some(AppTxn("crc-app", 7L))) // v2
     val t = endWrite(w)
     crcSpec(t, version = 2)
+    snapshotSpec(t)
   }
 
   test("cdf_updates_and_deletes") {

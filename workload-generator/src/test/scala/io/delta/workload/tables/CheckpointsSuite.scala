@@ -17,6 +17,7 @@
 package io.delta.workload.tables
 
 import io.delta.workload.{TableHandle, WorkloadTestSuite}
+import io.delta.workload.log.{Action, DomainMetadata, Txn}
 import io.delta.workload.model.ErrorCode
 
 class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
@@ -24,17 +25,17 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
   private def checkpoint(name: String): Unit = forceCheckpoint(name)
 
   /**
-   * Append one or more action lines to the commit JSON at `version`. Also drops that
-   * version's `<version>.crc` (now stale w.r.t. the edited commit) so the subsequent
-   * `checkpoint()` does not trip Delta's checksum integrity check and refuse to write.
+   * Append `actions` to the commit JSON at `version`. Also drops that version's `<version>.crc`
+   * (now stale w.r.t. the edited commit) so the subsequent `checkpoint()` does not trip Delta's
+   * checksum integrity check and refuse to write.
    */
-  private def injectActions(t: TableHandle, version: Int, lines: Seq[String]): Unit = {
+  private def injectActions(t: TableHandle, version: Int, actions: Seq[Action]): Unit = {
     mutateTable(t) { tableDir =>
       val logDir = tableDir.resolve("_delta_log")
       val commitFile = logDir.resolve(f"$version%020d.json")
       val content = new String(java.nio.file.Files.readAllBytes(commitFile), "UTF-8")
       java.nio.file.Files.write(commitFile,
-        (content.trim + "\n" + lines.mkString("\n") + "\n").getBytes("UTF-8"))
+        (content.trim + "\n" + actions.map(_.toJson).mkString("\n") + "\n").getBytes("UTF-8"))
       java.nio.file.Files.deleteIfExists(logDir.resolve(f"$version%020d.crc"))
     }
   }
@@ -562,7 +563,8 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     snapshotSpec(t, expectError = ErrorCode("DELTA_TABLE_NOT_FOUND"))
   }
 
-  // === checkpointSpec workloads: force a V1 checkpoint and assert its reconstructed state ===
+  // === checkpointSpec workloads: force a checkpoint and assert the file exists (contents are
+  //     covered by the paired snapshot spec) ===
 
   test("cp_basic") {
     sql("CREATE TABLE tbl (id INT, name STRING) USING delta")
@@ -570,6 +572,19 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     sql("INSERT INTO tbl VALUES (4,'d'),(5,'e')")
     val t = registerTable("tbl")
     checkpointSpec(t, version = 2)
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
+  test("cp_v2") {
+    sql("""CREATE TABLE tbl (id INT, name STRING) USING delta
+      TBLPROPERTIES ('delta.checkpointPolicy' = 'v2',
+        'delta.enableDeletionVectors' = 'trque')""")
+    sql("INSERT INTO tbl VALUES (1,'a'),(2,'b'),(3,'c')")
+    sql("INSERT INTO tbl VALUES (4,'d'),(5,'e')")
+    val t = registerTable("tbl")
+    checkpointSpec(t, version = 2)
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -579,6 +594,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     sql("INSERT INTO tbl VALUES (4,1),(5,0)")
     val t = registerTable("tbl")
     checkpointSpec(t, version = 2)
+    readSpec(t)
   }
 
   test("cp_after_many_commits") {
@@ -586,6 +602,7 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     for (i <- 1 to 6) sql(s"INSERT INTO tbl VALUES ($i)")
     val t = registerTable("tbl")
     checkpointSpec(t, version = 6)
+    readSpec(t)
     snapshotSpec(t)
   }
 
@@ -594,8 +611,10 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     sql("INSERT INTO tbl VALUES (1)")
     sql("INSERT INTO tbl VALUES (2)")
     val t = registerTable("tbl")
-    injectActions(t, 2, Seq("""{"txn":{"appId":"cp-app","version":42,"lastUpdated":1}}"""))
+    injectActions(t, 2, Seq(Txn("cp-app", version = 42, lastUpdated = Some(1))))
     checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
   }
 
   test("cp_with_domain_metadata") {
@@ -604,8 +623,9 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     sql("INSERT INTO tbl VALUES (1),(2),(3)")
     sql("DELETE FROM tbl WHERE id = 2")
     val t = registerTable("tbl")
-    val dm = """{"domain":"cpDomain","configuration":"{\"k\":\"v\"}","removed":false}"""
-    injectActions(t, 2, Seq(s"""{"domainMetadata":$dm}"""))
+    injectActions(t, 2, Seq(DomainMetadata("cpDomain", configuration = "{\"k\":\"v\"}")))
     checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
   }
 }

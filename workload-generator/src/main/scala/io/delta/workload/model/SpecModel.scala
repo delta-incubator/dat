@@ -57,51 +57,19 @@ object MetadataInfo {
       m.configuration, m.createdTime)
 }
 
-/** Snapshot success outcome. */
-@JsonPropertyOrder(Array("protocol", "metadata"))
-case class SnapshotResult(protocol: ProtocolInfo, metadata: MetadataInfo)
-
-// =============================================================================
-// Expected (success-outcome) types for the cdf/checkpoint/crc specs
-//
-// Each type is the `expected` payload recorded inline in its spec JSON, mirroring the read/snapshot
-// specs' outcome. The reconstructed protocol/metadata reuse the shared typed [[ProtocolInfo]] /
-// [[MetadataInfo]]; txn pairs reuse [[AppTxn]].
-// =============================================================================
+/**
+ * Snapshot success outcome: the reconstructed logical state at a version.
+ */
+@JsonPropertyOrder(Array("protocol", "metadata", "setTransactions", "domainMetadata"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class SnapshotResult(
+    protocol: ProtocolInfo,
+    metadata: MetadataInfo,
+    setTransactions: Option[Seq[AppTxn]] = None,
+    domainMetadata: Option[Seq[AddDomainMetadata]] = None)
 
 /** Change Data Feed success data. */
 case class CdfExpected(rowCount: Long)
-
-/** A single live Add-file entry in a checkpoint's reconstructed state. */
-case class CheckpointFile(path: String, size: Long)
-
-/** Checkpoint success data. The `txn`/`domainMetadata` sets are omitted when empty. */
-@JsonPropertyOrder(Array("protocol", "metadata", "files", "txn", "domainMetadata"))
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-case class CheckpointExpected(
-    protocol: ProtocolInfo,
-    metadata: MetadataInfo,
-    files: Seq[CheckpointFile] = Nil,
-    txn: Option[Seq[AppTxn]] = None,
-    domainMetadata: Option[Seq[AddDomainMetadata]] = None)
-
-/**
- * CRC (version checksum) success data, keyed to the fields delta-spark serializes into a
- * `<version>.crc` (`VersionChecksum`). Optional fields appear only when the `.crc` carries them:
- * deletion-vector counts require the feature, `inCommitTimestamp` requires ICT, `setTransactions`
- * appears only when the table has any.
- */
-@JsonPropertyOrder(Array("tableSizeBytes", "numFiles", "numDeletionVectors", "numDeletedRecords",
-  "inCommitTimestamp", "protocol", "setTransactions"))
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-case class CrcExpected(
-    tableSizeBytes: Option[Long] = None,
-    numFiles: Option[Long] = None,
-    numDeletionVectors: Option[Long] = None,
-    numDeletedRecords: Option[Long] = None,
-    inCommitTimestamp: Option[Long] = None,
-    protocol: Option[ProtocolInfo] = None,
-    setTransactions: Option[Seq[AppTxn]] = None)
 
 // =============================================================================
 // Shared read/snapshot query types
@@ -181,19 +149,13 @@ case class CdfSpec(
   val `type`: String = "cdf"
 }
 
-@JsonPropertyOrder(Array("type", "version", "expected"))
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-case class CheckpointSpec(
-    version: Long,
-    expected: Option[CheckpointExpected] = None) extends Spec {
+@JsonPropertyOrder(Array("type", "version"))
+case class CheckpointSpec(version: Long) extends Spec {
   val `type`: String = "checkpoint"
 }
 
-@JsonPropertyOrder(Array("type", "version", "expected"))
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-case class CrcSpec(
-    version: Long,
-    expected: Option[CrcExpected] = None) extends Spec {
+@JsonPropertyOrder(Array("type", "version"))
+case class CrcSpec(version: Long) extends Spec {
   val `type`: String = "crc"
 }
 

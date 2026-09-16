@@ -54,6 +54,8 @@ object CdfCapture {
       var df = buildReader(spark, tablePath, startVersion, endVersion,
         startTimestamp, endTimestamp)
       df = SnapshotResolver.applyFilters(df, predicate, columns)
+      // TODO(cdf-commit-timestamp): validate `_commit_timestamp` once ICT tables are covered; today
+      // it is dropped because on non-ICT tables it is the commit file's mtime (not reproducible).
       df = df.drop("_commit_timestamp")
       df = df.cache()
       val count = df.count()
@@ -69,8 +71,6 @@ object CdfCapture {
         (None, Some(SpecError(SpecOutcome.extractErrorCode(e), Option(e.getMessage).getOrElse(""))))
     }
 
-    // If the test author declared `expectError`, the operation MUST throw.
-    // See ReadCapture.capture for full semantics.
     expectError.foreach { expected =>
       def fail(msg: String): Nothing = {
         if (expectedDir.toFile.exists()) FileUtils.deleteDirectory(expectedDir.toFile)

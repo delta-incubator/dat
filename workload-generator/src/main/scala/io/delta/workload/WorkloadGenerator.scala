@@ -97,16 +97,11 @@ object WorkloadGenerator {
       Seq(SnapshotSpecConfig(SnapshotQuery()))
     } else ts.snapshotSpecs
     for (ss <- explicits) {
-      SnapshotCapture.capture(spark, dirName, destTablePath, specsDir,
+      val specPath = SnapshotCapture.capture(spark, dirName, destTablePath, specsDir,
         query = ss.query, expectError = ss.expectError)
-      val specName = (ss.query.version, ss.query.timestamp) match {
-        case (Some(v), _) => s"${dirName}_snapshot_v$v"
-        case (_, Some(ts)) =>
-          s"${dirName}_snapshot_ts_${ts.replace(":", "-").replace(" ", "_")}"
-        case _ => s"${dirName}_snapshot"
-      }
+      val specName = specPath.getFileName.toString.stripSuffix(".json")
       if (!snapshotNames.contains(specName)) snapshotNames += specName
-      checkAssertion(ss, specsDir.resolve(s"$specName.json"))
+      checkAssertion(ss, specPath)
     }
 
     val readNames = mutable.ArrayBuffer[String]()
@@ -135,7 +130,6 @@ object WorkloadGenerator {
     // for the summary total.
     var extraSpecCount = 0
 
-    // CDF specs
     for (cs <- ts.cdfSpecs) {
       val specPath = CdfCapture.capture(spark, dirName, destTablePath, testOutputDir, specsDir,
         name = cs.name, startVersion = cs.startVersion, endVersion = cs.endVersion,
@@ -145,7 +139,6 @@ object WorkloadGenerator {
       checkAssertion(cs, specPath)
     }
 
-    // Checkpoint specs
     for (cp <- ts.checkpointSpecs) {
       val specPath = CheckpointCapture.capture(spark, dirName, destTablePath, specsDir,
         version = cp.version, name = cp.name)
@@ -153,7 +146,6 @@ object WorkloadGenerator {
       checkAssertion(cp, specPath)
     }
 
-    // CRC specs
     for (crc <- ts.crcSpecs) {
       CrcCapture.capture(spark, dirName, destTablePath, specsDir,
         version = crc.version, name = crc.name).foreach { p =>
