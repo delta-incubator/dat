@@ -318,7 +318,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t, version = 999)
     }
     assertPassed(results)
-    val spec = JsonUtil.readReadSpec(specs("t_e1").resolve("t_e1_read_v999.json"))
+    val spec = JsonUtil.readSpecAs(specs("t_e1").resolve("t_e1_read_v999.json"), classOf[ReadSpec])
     assert(spec.query.version.contains(999L))
     spec.expectation match {
       case Failed(err) =>
@@ -720,7 +720,7 @@ class WorkloadGeneratorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       readSpec(t) // should produce error spec
     }
     assertPassed(results)
-    val spec = JsonUtil.readReadSpec(specs("t_corrupt").resolve("t_corrupt_read_all.json"))
+    val spec = JsonUtil.readSpecAs(specs("t_corrupt").resolve("t_corrupt_read_all.json"), classOf[ReadSpec])
     spec.expectation match {
       case Failed(err) =>
         // Error can be FileNotFoundException, SparkException wrapping it, or other file-related errors

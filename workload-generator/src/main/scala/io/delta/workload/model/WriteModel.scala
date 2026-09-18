@@ -53,7 +53,8 @@ case class AddFileInput(rows: Seq[Map[String, Any]])
  */
 case class CommitOrdinal(value: Int)
 
-// AppTxn/AddDomainMetadata are the minimal spec DTOs: only what a write spec declares and
+// AppTxn/AddDomainMetadata are the minimal spec DTOs, shared as BOTH write-spec input AND captured
+// output (the checkpoint/crc `expected` payloads reuse them): only what a write spec declares and
 // serializes. They form their own layer, separate from io.delta.workload.log.{Txn,DomainMetadata}
 // (log-fidelity parse types carrying lastUpdated/removed) and Spark's SetTransaction/DomainMetadata
 // (the engine boundary).

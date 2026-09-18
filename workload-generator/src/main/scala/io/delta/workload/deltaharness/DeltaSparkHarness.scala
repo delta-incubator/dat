@@ -24,6 +24,8 @@ import org.apache.spark.sql.delta.actions.{Action, AddFile, DomainMetadata, File
 // Hide Spark's types.Metadata so the unqualified `Metadata` is this package's typed case class.
 import org.apache.spark.sql.types.{Metadata => _, _}
 
+import io.delta.workload.model.{AddDomainMetadata, AppTxn}
+
 class DeltaSparkHarness extends SparkRowMaterializer {
   override def openLog(spark: SparkSession, tablePath: String): LogView = {
     DeltaLog.clearCache()
@@ -86,6 +88,7 @@ private class DeltaSparkLogView(inner: DeltaLog) extends LogView {
   override def getSnapshotAt(version: Long): ResolvedSnapshot =
     new DeltaSparkResolvedSnapshot(inner.getSnapshotAt(version))
   override def checkpoint(): Unit = inner.checkpoint()
+  override def checkpoint(version: Long): Unit = inner.checkpoint(inner.getSnapshotAt(version))
 }
 
 private class DeltaSparkResolvedSnapshot(inner: DeltaSnapshot) extends ResolvedSnapshot {
@@ -119,4 +122,10 @@ private class DeltaSparkResolvedSnapshot(inner: DeltaSnapshot) extends ResolvedS
     ds.map(f => (f.path, f.size, f.partitionValues, f.json))
       .toDF("path", "size", "partitionValues", "json")
   }
+
+  override def domainMetadata: Seq[AddDomainMetadata] =
+    inner.domainMetadata.toSeq.map(dm => AddDomainMetadata(dm.domain, dm.configuration))
+
+  override def setTransactions: Seq[AppTxn] =
+    inner.setTransactions.toSeq.map(t => AppTxn(t.appId, t.version))
 }

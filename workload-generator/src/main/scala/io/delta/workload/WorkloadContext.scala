@@ -132,6 +132,44 @@ class WorkloadContext private[workload] (
     if (parts.length == 1) "read_all" else parts.mkString("_")
   }
 
+  private[workload] def autoCdfName(
+      startVersion: Option[Long],
+      endVersion: Option[Long],
+      startTimestamp: Option[String],
+      endTimestamp: Option[String],
+      predicate: Option[String],
+      columns: Option[Seq[String]]): String = {
+    val parts = mutable.ArrayBuffer[String]("cdf")
+    startVersion.foreach(v => parts += s"v$v")
+    startTimestamp.foreach(ts => parts += "ts_" + ts.replace(":", "-").replace(" ", "_").take(23))
+    parts += "to"
+    endVersion.foreach(v => parts += s"v$v")
+    endTimestamp.foreach(ts => parts += "ts_" + ts.replace(":", "-").replace(" ", "_").take(23))
+    if (endVersion.isEmpty && endTimestamp.isEmpty) parts += "latest"
+    predicate.foreach(p => parts += simplifyPredicate(p))
+    columns.foreach { cols =>
+      parts += "cols_" + cols.take(3).mkString("_")
+      if (cols.size > 3) parts += s"plus${cols.size - 3}"
+    }
+    parts.mkString("_")
+  }
+
+  /** Turn a SQL predicate into a filesystem-safe spec-name fragment. */
+  private def simplifyPredicate(p: String): String =
+    p.toLowerCase
+      .replaceAll(">=", "_gte_").replaceAll("<=", "_lte_")
+      .replaceAll("<>", "_neq_").replaceAll("!=", "_neq_")
+      .replaceAll(">", "_gt_").replaceAll("<", "_lt_")
+      .replaceAll("=", "_eq_")
+      .replaceAll("\\s+and\\s+", "_and_").replaceAll("\\s+or\\s+", "_or_")
+      .replaceAll("\\s+is\\s+not\\s+null", "_is_not_null")
+      .replaceAll("\\s+is\\s+null", "_is_null")
+      .replaceAll("\\s+in\\s+", "_in_")
+      .replaceAll("\\s+", "_")
+      .replaceAll("[^a-z0-9_]", "")
+      .replaceAll("_+", "_").stripPrefix("_").stripSuffix("_")
+      .take(50)
+
   // ---- Internal ----
 
   private def ensureTableSpec(handle: TableHandle): Unit = {
