@@ -99,6 +99,7 @@ trait LogView {
   def update(): ResolvedSnapshot
   def getSnapshotAt(version: Long): ResolvedSnapshot
   def checkpoint(): Unit
+  def checkpoint(version: Long): Unit
 }
 
 trait ResolvedSnapshot {
@@ -116,6 +117,12 @@ trait ResolvedSnapshot {
    * ordering or extra fields.
    */
   def allFiles: DataFrame
+
+  /** Active domain-metadata entries (tombstones excluded). */
+  def domainMetadata: Seq[AddDomainMetadata]
+
+  /** Active set-transaction entries. */
+  def setTransactions: Seq[AppTxn]
 }
 
 // Neutral typed view of a snapshot's protocol + metadata. SPI-side types (no dependency on

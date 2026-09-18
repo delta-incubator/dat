@@ -28,7 +28,8 @@ import scala.util.control.NonFatal
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 
-import io.delta.workload.capture.{ReadCapture, SnapshotCapture}
+import io.delta.workload.capture.{CdfCapture, CheckpointCapture, CrcCapture, ReadCapture, SnapshotCapture}
+import io.delta.workload.deltaharness.DeltaHarness
 import io.delta.workload.json.JsonUtil
 import io.delta.workload.model._
 import io.delta.workload.write.WriteReplay
@@ -51,10 +52,12 @@ case class ValidationResult(outcomes: Seq[SpecOutcome]) {
  * and validates each captured spec under `specs/`, dispatching on the `type` field:
  *
  *   - `write`: replay its `commits` into a fresh table, compare rows to `expected/<name>/`.
- *   - `read` / `snapshot`: the captured-vs-replayed target is chosen once per directory. If the
- *     directory has a write spec, every read/snapshot spec validates against the table replayed
- *     from it (a read by rows only; a snapshot leniently, since a replay mints fresh per-table
- *     ids). Otherwise it is read-only: validate against the captured `delta/` table exactly.
+ *   - `read` / `snapshot` / `cdf`: the captured-vs-replayed target is chosen once per directory. If
+ *     the directory has a write spec, every such spec validates against the table replayed from it
+ *     (a read/cdf by rows only; a snapshot leniently, since a replay mints fresh per-table ids).
+ *     Otherwise it is read-only: validate against the captured `delta/` table exactly.
+ *   - `checkpoint` / `crc`: assert the sidecar file exists at the spec's version; contents are
+ *     covered by a paired snapshot/read spec.
  *
  * Used both as the presubmit acceptance entry point ([[validateAll]]) and by the generator to
  * self-check a freshly generated test dir ([[validateTestDir]]).
@@ -111,6 +114,12 @@ object WorkloadValidator {
     val writeDerived = writeSpecFile.isDefined
     def queryTarget: Path = writeSpecFile.map(wf => replayOf(wf.getFileName.toString)).getOrElse(deltaTable)
 
+    if (writeDerived) {
+      parsed.collect { case (_, s: CheckpointSpec) => s.version }.distinct.foreach { v =>
+        DeltaHarness.get.openLog(spark, queryTarget.toString).checkpoint(v)
+      }
+    }
+
     // Validate one spec to a single outcome. Read-only specs (no write spec in the dir) validate
     // against the captured `delta/` table exactly; its absence means the corpus is incomplete.
     def validateOne(specFile: Path, spec: Spec): SpecOutcome = {
@@ -121,9 +130,9 @@ object WorkloadValidator {
         else SpecFailed(id, s"read-only spec but no captured table at $deltaTable")
       try spec match {
         case _: WriteSpec =>
-          // Basic validation: triggering the replay (queryTarget) reconstructs the table and
-          // asserts replay succeeds + finalVersion == commits.size-1. Row content is checked by
-          // the baseline 'latest' read spec; per-version metadata by the snapshot spec.
+          // Triggering the replay reconstructs the table and asserts replay succeeds +
+          // finalVersion == commits.size-1. Rows are checked by the baseline read spec and
+          // per-version metadata by the snapshot spec.
           val _ = queryTarget; SpecPassed(id)
         case _: ReadSpec =>
           val expectedDir = testDir.resolve("expected").resolve(bare)
@@ -135,13 +144,67 @@ object WorkloadValidator {
           if (writeDerived) {
             SnapshotCapture.validateFromSpec(spark, queryTarget, specFile, isWriteValidation = true); SpecPassed(id)
           } else readOnly(t => SnapshotCapture.validateFromSpec(spark, t, specFile))
+        case _: CdfSpec =>
+          val expectedDir = testDir.resolve("expected").resolve(bare)
+          if (writeDerived) {
+            CdfCapture.validateFromSpec(spark, queryTarget, expectedDir, specFile); SpecPassed(id)
+          } else readOnly(t => CdfCapture.validateFromSpec(spark, t, expectedDir, specFile))
+        case _: CheckpointSpec =>
+          if (writeDerived) {
+            CheckpointCapture.validateFromSpec(spark, queryTarget, specFile)
+            SpecPassed(id)
+          } else readOnly(t => CheckpointCapture.validateFromSpec(spark, t, specFile))
+        case _: CrcSpec =>
+          if (writeDerived) {
+            CrcCapture.validateFromSpec(spark, queryTarget, specFile)
+            SpecPassed(id)
+          } else readOnly(t => CrcCapture.validateFromSpec(spark, t, specFile))
       } catch {
         case e: Throwable => SpecFailed(id, e.toString)
       }
     }
 
-    try outcomes ++= parsed.map { case (f, spec) => validateOne(f, spec) }
-    finally tempDirs.foreach(td => try FileUtils.deleteDirectory(td.toFile) catch { case NonFatal(_) => })
+    try {
+      outcomes ++= parsed.map { case (f, spec) => validateOne(f, spec) }
+    } finally tempDirs.foreach(td => try FileUtils.deleteDirectory(td.toFile) catch { case NonFatal(_) => })
+    ValidationResult(outcomes.toSeq)
+  }
+
+  /**
+   * Validate the metadata specs under `specsDir` against an already-written table at `tablePath`.
+   */
+  def validateAgainstTable(spark: SparkSession, tablePath: Path, specsDir: Path): ValidationResult = {
+    val outcomes = mutable.ArrayBuffer[SpecOutcome]()
+    // A table that fails to open is the most severe engine failure; surface it as a failure rather
+    // than swallowing it into a sentinel that makes every spec skip and the result falsely pass.
+    val latest =
+      try DeltaHarness.get.openLog(spark, tablePath.toString).update().version
+      catch {
+        case NonFatal(e) =>
+          return ValidationResult(Seq(SpecFailed("table", s"failed to open table at $tablePath: $e")))
+      }
+    listSpecs(specsDir).foreach { specFile =>
+      val id = specFile.getFileName.toString.stripSuffix(".json")
+      def skip(v: Long): Unit =
+        println(s"  SKIP $id: spec version $v > table latest $latest (not reproduced by the engine under test)")
+      try {
+        JsonUtil.readSpec(specFile) match {
+          case s: CheckpointSpec if s.version > latest => skip(s.version)
+          case s: CrcSpec if s.version > latest => skip(s.version)
+          case s: SnapshotSpec if s.query.version.exists(_ > latest) => skip(s.query.version.get)
+          case _: CheckpointSpec =>
+            CheckpointCapture.validateFromSpec(spark, tablePath, specFile)
+            outcomes += SpecPassed(id)
+          case _: CrcSpec =>
+            CrcCapture.validateFromSpec(spark, tablePath, specFile)
+            outcomes += SpecPassed(id)
+          case _: SnapshotSpec =>
+            SnapshotCapture.validateFromSpec(spark, tablePath, specFile, isWriteValidation = true)
+            outcomes += SpecPassed(id)
+          case _ => // read / cdf / write -- rows are validated by the harness's read-back
+        }
+      } catch { case NonFatal(e) => outcomes += SpecFailed(id, e.toString) }
+    }
     ValidationResult(outcomes.toSeq)
   }
 
