@@ -63,6 +63,23 @@ class WriteCommitSuite extends WorkloadTestSuite("write_commit") {
     snapshotSpec(t)
   }
 
+  // Checkpoint / CRC / CDF specs on a write-derived table: the generator validates these against
+  // the table REPLAYED by the engine-under-test.
+  test("checkpoint_crc_cdf_write_derived") {
+    val w = createTableOp("tbl",
+      schema = new StructType().add("id", IntegerType).add("name", StringType),
+      properties = Map("delta.enableChangeDataFeed" -> "true"))
+    insertOp(w, Seq(Map("id" -> 1, "name" -> "alice"), Map("id" -> 2, "name" -> "bob"))) // v1
+    insertOp(w, Seq(Map("id" -> 3, "name" -> "carol"))) // v2
+    val t = endWrite(w)
+
+    readSpec(t)
+    snapshotSpec(t)
+    checkpointSpec(t, version = 2)
+    crcSpec(t, version = 2)
+    cdfSpec(t, startVersion = 0L)
+  }
+
   test("commit_with_domain_metadata") {
     val w = createTableOp("tbl",
       schema = new StructType().add("id", IntegerType).add("name", StringType),

@@ -26,7 +26,7 @@ import com.fasterxml.jackson.databind.module.SimpleModule
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.sql.types.{DataType, StructType}
 
-import io.delta.workload.model.{Failed, ReadQuery, ReadResult, ReadSpec, SnapshotQuery, SnapshotResult, SnapshotSpec, Spec, SpecError, SpecExpectation, Succeeded}
+import io.delta.workload.model._
 
 /**
  * Flattens the outcome to top-level `expected` (success) XOR `error` (failure). `@JsonUnwrapped`
@@ -106,6 +106,30 @@ private[workload] class SnapshotSpecDeserializer extends SpecDeserializer[Snapsh
       SnapshotQuery(SpecExpectationJson.optLong(n, "version"), SpecExpectationJson.optText(n, "timestamp")),
       SpecExpectationJson.read(n, classOf[SnapshotResult]))
 }
+private[workload] class CdfSpecSerializer extends SpecSerializer[CdfSpec] {
+  override def serialize(s: CdfSpec, g: JsonGenerator, p: SerializerProvider): Unit =
+    SpecExpectationJson.writeEnvelope(g, s.`type`, version = None, timestamp = None, s.expectation) {
+      s.startVersion.foreach(v => g.writeNumberField("startVersion", v))
+      s.startTimestamp.foreach(t => g.writeStringField("startTimestamp", t))
+      s.endVersion.foreach(v => g.writeNumberField("endVersion", v))
+      s.endTimestamp.foreach(t => g.writeStringField("endTimestamp", t))
+      s.predicate.foreach(pr => g.writeStringField("predicate", pr))
+      s.columns.foreach { cols =>
+        g.writeArrayFieldStart("columns"); cols.foreach(g.writeString); g.writeEndArray()
+      }
+    }
+}
+private[workload] class CdfSpecDeserializer extends SpecDeserializer[CdfSpec] {
+  override protected def fromNode(n: JsonNode): CdfSpec =
+    CdfSpec(
+      startVersion = SpecExpectationJson.optLong(n, "startVersion"),
+      endVersion = SpecExpectationJson.optLong(n, "endVersion"),
+      startTimestamp = SpecExpectationJson.optText(n, "startTimestamp"),
+      endTimestamp = SpecExpectationJson.optText(n, "endTimestamp"),
+      predicate = SpecExpectationJson.optText(n, "predicate"),
+      columns = SpecExpectationJson.optStrings(n, "columns"),
+      expectation = SpecExpectationJson.read(n, classOf[CdfExpected]))
+}
 
 // =============================================================================
 // JSON and DataFrame utilities
@@ -143,14 +167,11 @@ object JsonUtil {
     Files.write(path, prettyWriter.writeValueAsBytes(spec))
 
 
-  def readReadSpec(path: Path): ReadSpec =
-    mapper.readValue(Files.readAllBytes(path), classOf[ReadSpec])
-
-  def readSnapshotSpec(path: Path): SnapshotSpec =
-    mapper.readValue(Files.readAllBytes(path), classOf[SnapshotSpec])
+  /** Deserialize a spec file as the given concrete type; call sites pass `classOf[...]`. */
+  def readSpecAs[T](path: Path, cls: Class[T]): T =
+    mapper.readValue(Files.readAllBytes(path), cls)
 
   /** Deserialize any spec by its `type` tag into the sealed [[Spec]]. */
-  def readSpec(path: Path): Spec =
-    mapper.readValue(Files.readAllBytes(path), classOf[Spec])
+  def readSpec(path: Path): Spec = readSpecAs(path, classOf[Spec])
 
 }

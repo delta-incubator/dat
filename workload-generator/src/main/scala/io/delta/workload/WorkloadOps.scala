@@ -103,6 +103,62 @@ trait WorkloadOps {
     new SpecRef(config)
   }
 
+  /**
+   * Change Data Feed spec over a version/timestamp range. Requires a start bound
+   * (`startVersion` or `startTimestamp`).
+   */
+  def cdfSpec(
+      table: TableHandle,
+      startVersion: java.lang.Long = null,
+      endVersion: java.lang.Long = null,
+      startTimestamp: String = null,
+      endTimestamp: String = null,
+      predicate: String = null,
+      columns: Seq[String] = null,
+      name: String = null,
+      expectError: String = null): SpecRef[CdfSpec] = {
+    val ctx = WorkloadContext.current
+    val specName = if (name != null) name else ctx.autoCdfName(
+      ctx.toOption(startVersion), ctx.toOption(endVersion), Option(startTimestamp),
+      Option(endTimestamp), Option(predicate), Option(columns))
+    ctx.requireUnique(table, specName)
+    val config = CdfSpecConfig(
+      specName, ctx.toOption(startVersion), ctx.toOption(endVersion), Option(startTimestamp),
+      Option(endTimestamp), Option(predicate), Option(columns), Option(expectError))
+    ctx.getTableSpec(table).cdfSpecs += config
+    new SpecRef(config)
+  }
+
+  /**
+   * Checkpoint spec: a trigger that forces a checkpoint at `version`.
+   */
+  def checkpointSpec(
+      table: TableHandle,
+      version: Long,
+      name: String = null): SpecRef[CheckpointSpec] = {
+    val ctx = WorkloadContext.current
+    val specName = if (name != null) name else s"checkpoint_v$version"
+    ctx.requireUnique(table, specName)
+    val config = CheckpointSpecConfig(specName, version)
+    ctx.getTableSpec(table).checkpointSpecs += config
+    new SpecRef(config)
+  }
+
+  /**
+   * CRC (version-checksum) spec: a trigger asserting the engine wrote a `<version>.crc` at `version`.
+   */
+  def crcSpec(
+      table: TableHandle,
+      version: Long,
+      name: String = null): SpecRef[CrcSpec] = {
+    val ctx = WorkloadContext.current
+    val specName = if (name != null) name else s"crc_v$version"
+    ctx.requireUnique(table, specName)
+    val config = CrcSpecConfig(specName, version)
+    ctx.getTableSpec(table).crcSpecs += config
+    new SpecRef(config)
+  }
+
   /** Force Spark to write a checkpoint file for the given SQL table name. */
   def forceCheckpoint(tableName: String): Unit = current.forceCheckpoint(tableName)
 
@@ -349,5 +405,19 @@ trait WorkloadOps {
     mutateTable(table) { tableDir =>
       if (Files.exists(CommitLog.commitFile(tableDir, version)))
         CommitLog.mutate(tableDir, version)(modifier)
+    }
+
+  /**
+   * Append `actions` to the commit JSON at `version`.
+   */
+  def injectCommitActions(table: TableHandle, version: Long)(actions: Seq[Action]): Unit =
+    mutateTable(table) { tableDir =>
+      val logDir = tableDir.resolve("_delta_log")
+      val commitFile = logDir.resolve(f"$version%020d.json")
+      val content = new String(Files.readAllBytes(commitFile), "UTF-8")
+      Files.write(
+        commitFile,
+        (content.trim + "\n" + actions.map(_.toJson).mkString("\n") + "\n").getBytes("UTF-8"))
+      Files.deleteIfExists(logDir.resolve(f"$version%020d.crc"))
     }
 }

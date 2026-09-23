@@ -20,7 +20,7 @@ import com.fasterxml.jackson.annotation._
 import com.fasterxml.jackson.databind.annotation.{JsonDeserialize, JsonSerialize}
 
 import io.delta.workload.deltaharness.{Format, Metadata}
-import io.delta.workload.json.{ReadSpecDeserializer, ReadSpecSerializer, SnapshotSpecDeserializer, SnapshotSpecSerializer}
+import io.delta.workload.json.{CdfSpecDeserializer, CdfSpecSerializer, ReadSpecDeserializer, ReadSpecSerializer, SnapshotSpecDeserializer, SnapshotSpecSerializer}
 
 // =============================================================================
 // Spec Expected types: success data or error info
@@ -57,9 +57,19 @@ object MetadataInfo {
       m.configuration, m.createdTime)
 }
 
-/** Snapshot success outcome. */
-@JsonPropertyOrder(Array("protocol", "metadata"))
-case class SnapshotResult(protocol: ProtocolInfo, metadata: MetadataInfo)
+/**
+ * Snapshot success outcome: the reconstructed logical state at a version.
+ */
+@JsonPropertyOrder(Array("protocol", "metadata", "setTransactions", "domainMetadata"))
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+case class SnapshotResult(
+    protocol: ProtocolInfo,
+    metadata: MetadataInfo,
+    setTransactions: Option[Seq[AppTxn]] = None,
+    domainMetadata: Option[Seq[AddDomainMetadata]] = None)
+
+/** Change Data Feed success data. */
+case class CdfExpected(rowCount: Long)
 
 // =============================================================================
 // Shared read/snapshot query types
@@ -97,7 +107,10 @@ case class SnapshotQuery(
 @JsonSubTypes(Array(
   new JsonSubTypes.Type(value = classOf[ReadSpec], name = "read"),
   new JsonSubTypes.Type(value = classOf[SnapshotSpec], name = "snapshot"),
-  new JsonSubTypes.Type(value = classOf[WriteSpec], name = "write")))
+  new JsonSubTypes.Type(value = classOf[WriteSpec], name = "write"),
+  new JsonSubTypes.Type(value = classOf[CdfSpec], name = "cdf"),
+  new JsonSubTypes.Type(value = classOf[CheckpointSpec], name = "checkpoint"),
+  new JsonSubTypes.Type(value = classOf[CrcSpec], name = "crc")))
 sealed trait Spec { def `type`: String }
 
 @JsonSerialize(using = classOf[ReadSpecSerializer])
@@ -119,6 +132,29 @@ case class SnapshotSpec(query: SnapshotQuery, expectation: SpecExpectation[Snaps
 @JsonPropertyOrder(Array("type", "commits"))
 case class WriteSpec(commits: Seq[WriteCommit]) extends Spec {
   val `type`: String = "write"
+}
+
+@JsonSerialize(using = classOf[CdfSpecSerializer])
+@JsonDeserialize(using = classOf[CdfSpecDeserializer])
+case class CdfSpec(
+    startVersion: Option[Long] = None,
+    endVersion: Option[Long] = None,
+    startTimestamp: Option[String] = None,
+    endTimestamp: Option[String] = None,
+    predicate: Option[String] = None,
+    columns: Option[Seq[String]] = None,
+    expectation: SpecExpectation[CdfExpected]) extends Spec {
+  val `type`: String = "cdf"
+}
+
+@JsonPropertyOrder(Array("type", "version"))
+case class CheckpointSpec(version: Long) extends Spec {
+  val `type`: String = "checkpoint"
+}
+
+@JsonPropertyOrder(Array("type", "version"))
+case class CrcSpec(version: Long) extends Spec {
+  val `type`: String = "crc"
 }
 
 /** The spec outcome: `Succeeded { expected } | Failed { error }`. */

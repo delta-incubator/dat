@@ -59,7 +59,9 @@ class SpecRef[T] private[workload] (
 
 private[workload] trait HasAssertion[T] {
   var assertion: Option[com.fasterxml.jackson.databind.JsonNode => Unit] = None
-  def deserialize: com.fasterxml.jackson.databind.JsonNode => T
+  def specClass: Class[T]
+  def deserialize: com.fasterxml.jackson.databind.JsonNode => T =
+    n => JsonUtil.mapper.treeToValue(n, specClass)
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,9 @@ private[workload] class TableDecl(
   private[workload] def resolveOutputName(name: String): Unit = { _outputName = name }
   val readSpecs = mutable.ArrayBuffer[ReadSpecConfig]()
   val snapshotSpecs = mutable.ArrayBuffer[SnapshotSpecConfig]()
+  val cdfSpecs = mutable.ArrayBuffer[CdfSpecConfig]()
+  val checkpointSpecs = mutable.ArrayBuffer[CheckpointSpecConfig]()
+  val crcSpecs = mutable.ArrayBuffer[CrcSpecConfig]()
   val mutations = mutable.ArrayBuffer[Path => Unit]()
   var writeBuilder: Option[WriteSpecBuilder] = None
 }
@@ -83,13 +88,29 @@ private[workload] class TableDecl(
 private[workload] case class ReadSpecConfig(
     name: String, query: ReadQuery,
     expectError: ErrorExpectation = AutoDetect) extends HasAssertion[ReadSpec] {
-  val deserialize = (n: com.fasterxml.jackson.databind.JsonNode) =>
-    JsonUtil.mapper.treeToValue(n, classOf[ReadSpec])
+  val specClass = classOf[ReadSpec]
 }
 
 private[workload] case class SnapshotSpecConfig(
     query: SnapshotQuery,
     expectError: ErrorExpectation = AutoDetect) extends HasAssertion[SnapshotSpec] {
-  val deserialize = (n: com.fasterxml.jackson.databind.JsonNode) =>
-    JsonUtil.mapper.treeToValue(n, classOf[SnapshotSpec])
+  val specClass = classOf[SnapshotSpec]
+}
+
+private[workload] case class CdfSpecConfig(
+    name: String, startVersion: Option[Long], endVersion: Option[Long],
+    startTimestamp: Option[String], endTimestamp: Option[String],
+    predicate: Option[String], columns: Option[Seq[String]],
+    expectError: Option[String] = None) extends HasAssertion[CdfSpec] {
+  val specClass = classOf[CdfSpec]
+}
+
+private[workload] case class CheckpointSpecConfig(
+    name: String, version: Long) extends HasAssertion[CheckpointSpec] {
+  val specClass = classOf[CheckpointSpec]
+}
+
+private[workload] case class CrcSpecConfig(
+    name: String, version: Long) extends HasAssertion[CrcSpec] {
+  val specClass = classOf[CrcSpec]
 }

@@ -16,14 +16,18 @@
 
 package io.delta.workload.tables
 
-import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.{TableHandle, WorkloadTestSuite}
+import io.delta.workload.log.{Action, DomainMetadata, Txn}
 import io.delta.workload.model.ErrorCode
 
 class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
 
   private def checkpoint(name: String): Unit = forceCheckpoint(name)
 
-  // Existing 5 workloads
+  private def injectActions(t: TableHandle, version: Int, actions: Seq[Action]): Unit =
+    injectCommitActions(t, version.toLong)(actions)
+
+  // === Read/snapshot workloads over tables that have a checkpoint ===
 
   test("classic") {
     sql("CREATE TABLE tbl (id INT) USING delta")
@@ -546,4 +550,70 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     snapshotSpec(t, expectError = ErrorCode("DELTA_TABLE_NOT_FOUND"))
   }
 
+  // === checkpointSpec workloads: force a checkpoint and assert the file exists (contents are
+  //     covered by the paired snapshot spec) ===
+
+  test("cp_basic") {
+    sql("CREATE TABLE tbl (id INT, name STRING) USING delta")
+    sql("INSERT INTO tbl VALUES (1,'a'),(2,'b'),(3,'c')")
+    sql("INSERT INTO tbl VALUES (4,'d'),(5,'e')")
+    val t = registerTable("tbl")
+    checkpointSpec(t, version = 2)
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
+  test("cp_v2") {
+    sql("""CREATE TABLE tbl (id INT, name STRING) USING delta
+      TBLPROPERTIES ('delta.checkpointPolicy' = 'v2',
+        'delta.enableDeletionVectors' = 'trque')""")
+    sql("INSERT INTO tbl VALUES (1,'a'),(2,'b'),(3,'c')")
+    sql("INSERT INTO tbl VALUES (4,'d'),(5,'e')")
+    val t = registerTable("tbl")
+    checkpointSpec(t, version = 2)
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
+  test("cp_partitioned") {
+    sql("CREATE TABLE tbl (id INT, part INT) USING delta PARTITIONED BY (part)")
+    sql("INSERT INTO tbl VALUES (1,0),(2,1),(3,0)")
+    sql("INSERT INTO tbl VALUES (4,1),(5,0)")
+    val t = registerTable("tbl")
+    checkpointSpec(t, version = 2)
+    readSpec(t)
+  }
+
+  test("cp_after_many_commits") {
+    sql("CREATE TABLE tbl (id INT) USING delta")
+    for (i <- 1 to 6) sql(s"INSERT INTO tbl VALUES ($i)")
+    val t = registerTable("tbl")
+    checkpointSpec(t, version = 6)
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
+  test("cp_with_set_transaction") {
+    sql("CREATE TABLE tbl (id INT) USING delta")
+    sql("INSERT INTO tbl VALUES (1)")
+    sql("INSERT INTO tbl VALUES (2)")
+    val t = registerTable("tbl")
+    injectActions(t, 2, Seq(Txn("cp-app", version = 42, lastUpdated = Some(1))))
+    checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
+  }
+
+  test("cp_with_domain_metadata") {
+    sql("""CREATE TABLE tbl (id INT) USING delta
+      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true',
+      'delta.feature.domainMetadata' = 'supported')""")
+    sql("INSERT INTO tbl VALUES (1),(2),(3)")
+    sql("DELETE FROM tbl WHERE id = 2")
+    val t = registerTable("tbl")
+    injectActions(t, 2, Seq(DomainMetadata("cpDomain", configuration = "{\"k\":\"v\"}")))
+    checkpointSpec(t, version = 2)
+    snapshotSpec(t)
+    readSpec(t)
+  }
 }

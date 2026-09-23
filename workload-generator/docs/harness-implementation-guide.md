@@ -215,6 +215,34 @@ The write spec has no expected-data artifact of its own. Its own check is **basi
 
 Because a write spec is replayed (not byte-compared), comparison is **portable**: rows-only data checks, capability-based protocol comparison (your table may use explicit table features where Spark used legacy versions), and column-mapping-normalized schema. A write spec's presence makes its whole directory *write-derived*: replay it into a fresh table once, then validate every read/snapshot spec in that directory (including the baseline `latest` read) against the replay (portably), rather than against a captured `delta/` directory.
 
+### CDF Specs
+
+```json
+{ "type": "cdf", "startVersion": 0, "endVersion": 2, "expected": { "rowCount": 5 } }
+```
+
+**Execute:** read the change feed over `[startVersion, endVersion]` (or the timestamp bounds).
+
+**Validate:** compare the change rows against `expected/<name>/expected_data/` as a bag of typed rows, exactly like a read spec. `_change_type` and `_commit_version` are compared; `_commit_timestamp` is not (on non-ICT tables it is the commit file's mtime, which does not survive tarring). Assert `rowCount`. An `"error"` outcome is supported like other specs.
+
+### Checkpoint and CRC Specs
+
+```json
+{ "type": "checkpoint", "version": 2 }
+{ "type": "crc", "version": 2 }
+```
+
+These are **presence triggers**, not content specs. Validate by asserting a `<version>.checkpoint*` (checkpoint) or `<version>.crc` (crc) file exists in `_delta_log/`. Checkpoint contents are validated indirectly by a paired read spec: reading a version whose snapshot reconstructs through the checkpoint returns wrong rows if the checkpoint dropped or duplicated an Add file, so a content-wrong checkpoint fails that read spec. (A snapshot spec covers only protocol/metadata, not the file set, so it does not catch this on its own.) The `.crc` (version-checksum) file is optional per the protocol, so the crc spec is capability-gated: a harness whose engine does not write version checksums skips crc specs, while a harness whose engine does write them must produce a `.crc` at the spec's version. The spec asserts only that the file was written; an engine that verifies checksums on read additionally validates the contents on load, but that is not assumed.
+
+### Invariant Validators (row tracking, stats)
+
+Some correctness properties are not per-spec JSON; they are engine-agnostic invariants a write harness checks against the table the engine under test produced. A write harness implements these directly against the written table:
+
+- **Stats:** per-file timestamp stats are millisecond-truncated; each file's `minValues`/`maxValues` bound its live rows (deletion vectors applied). When `tightBounds` is true the bounds must equal the live min/max; when false they need only contain them.
+- **Row tracking (when the `rowTracking` feature is on):** every live Add carries a `baseRowId`; fresh-id ranges never overlap; the `rowIdHighWaterMark` covers the largest assigned id; and every row's `_metadata.row_id` is non-null and unique.
+
+These run only in a write harness, against the table the engine under test produced.
+
 ---
 
 ## Step 4: Incremental Adoption
