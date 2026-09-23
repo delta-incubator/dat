@@ -406,4 +406,18 @@ trait WorkloadOps {
       if (Files.exists(CommitLog.commitFile(tableDir, version)))
         CommitLog.mutate(tableDir, version)(modifier)
     }
+
+  /**
+   * Append `actions` to the commit JSON at `version`.
+   */
+  def injectCommitActions(table: TableHandle, version: Long)(actions: Seq[Action]): Unit =
+    mutateTable(table) { tableDir =>
+      val logDir = tableDir.resolve("_delta_log")
+      val commitFile = logDir.resolve(f"$version%020d.json")
+      val content = new String(Files.readAllBytes(commitFile), "UTF-8")
+      Files.write(
+        commitFile,
+        (content.trim + "\n" + actions.map(_.toJson).mkString("\n") + "\n").getBytes("UTF-8"))
+      Files.deleteIfExists(logDir.resolve(f"$version%020d.crc"))
+    }
 }

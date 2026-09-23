@@ -20,7 +20,7 @@ import com.fasterxml.jackson.annotation._
 import com.fasterxml.jackson.databind.annotation.{JsonDeserialize, JsonSerialize}
 
 import io.delta.workload.deltaharness.{Format, Metadata}
-import io.delta.workload.json.{ReadSpecDeserializer, ReadSpecSerializer, SnapshotSpecDeserializer, SnapshotSpecSerializer}
+import io.delta.workload.json.{CdfSpecDeserializer, CdfSpecSerializer, ReadSpecDeserializer, ReadSpecSerializer, SnapshotSpecDeserializer, SnapshotSpecSerializer}
 
 // =============================================================================
 // Spec Expected types: success data or error info
@@ -134,9 +134,8 @@ case class WriteSpec(commits: Seq[WriteCommit]) extends Spec {
   val `type`: String = "write"
 }
 
-@JsonPropertyOrder(Array("type", "startVersion", "startTimestamp", "endVersion", "endTimestamp",
-  "predicate", "columns", "expected", "expectedError"))
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
+@JsonSerialize(using = classOf[CdfSpecSerializer])
+@JsonDeserialize(using = classOf[CdfSpecDeserializer])
 case class CdfSpec(
     startVersion: Option[Long] = None,
     endVersion: Option[Long] = None,
@@ -144,8 +143,7 @@ case class CdfSpec(
     endTimestamp: Option[String] = None,
     predicate: Option[String] = None,
     columns: Option[Seq[String]] = None,
-    expected: Option[CdfExpected] = None,
-    expectedError: Option[SpecError] = None) extends Spec {
+    expectation: SpecExpectation[CdfExpected]) extends Spec {
   val `type`: String = "cdf"
 }
 

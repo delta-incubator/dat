@@ -70,6 +70,13 @@ class SpecSerdeSuite extends AnyFunSuite {
     assert(mapper.readValue(str(spec), classOf[SnapshotSpec]) == spec)
   }
 
+  test("CdfSpec: failure writes `error`, not `expected`, and round-trips") {
+    val spec = CdfSpec(startVersion = Some(0), expectation = Failed(SpecError("DELTA_CDF_ERROR", "no")))
+    val n = tree(spec)
+    assert(n.has("error") && !n.has("expected"))
+    assert(mapper.readValue(str(spec), classOf[CdfSpec]) == spec)
+  }
+
   test("polymorphic dispatch: readValue[Spec] picks the subtype from `type`") {
     val read: Spec = ReadSpec(ReadQuery(), Succeeded(ReadResult(0, 0, 0)))
     val snap: Spec = SnapshotSpec(SnapshotQuery(), Failed(SpecError("E", "m")))

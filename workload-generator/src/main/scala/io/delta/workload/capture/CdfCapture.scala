@@ -26,7 +26,7 @@ import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 import io.delta.workload.deltaharness.DeltaHarness
 import io.delta.workload.engine.{RowComparison, SnapshotResolver, SpecOutcome}
 import io.delta.workload.json.JsonUtil
-import io.delta.workload.model.{CdfExpected, CdfSpec, SpecError}
+import io.delta.workload.model.{CdfExpected, CdfSpec, Failed, SpecError, SpecExpectation, Succeeded}
 
 object CdfCapture {
 
@@ -50,7 +50,7 @@ object CdfCapture {
     Files.createDirectories(expectedDir)
     val specPath = specsDir.resolve(s"$specName.json")
 
-    val (expected, expectedError) = try {
+    val expectation: SpecExpectation[CdfExpected] = try {
       var df = buildReader(spark, tablePath, startVersion, endVersion,
         startTimestamp, endTimestamp)
       df = SnapshotResolver.applyFilters(df, predicate, columns)
@@ -62,13 +62,13 @@ object CdfCapture {
 
       try {
         writeExpectedData(expectedDir, df)
-        (Some(CdfExpected(count)), None)
+        Succeeded(CdfExpected(count))
       } finally {
         df.unpersist()
       }
     } catch {
       case NonFatal(e) =>
-        (None, Some(SpecError(SpecOutcome.extractErrorCode(e), Option(e.getMessage).getOrElse(""))))
+        Failed(SpecError(SpecOutcome.extractErrorCode(e), Option(e.getMessage).getOrElse("")))
     }
 
     expectError.foreach { expected =>
@@ -76,31 +76,30 @@ object CdfCapture {
         if (expectedDir.toFile.exists()) FileUtils.deleteDirectory(expectedDir.toFile)
         throw new RuntimeException(msg)
       }
-      expectedError match {
-        case None =>
+      expectation match {
+        case Succeeded(_) =>
           fail(s"CDF $specName: declared expectError=" +
             (if (expected.isEmpty) "(any)" else s"'$expected'") +
             " but operation succeeded")
-        case Some(err) if expected.nonEmpty &&
+        case Failed(err) if expected.nonEmpty &&
             SpecOutcome.normalizeErrorCode(err.errorCode) !=
               SpecOutcome.normalizeErrorCode(expected) =>
           fail(s"CDF $specName: declared expectError='$expected' but got " +
             s"'${err.errorCode}'")
-        case _ => // matches
+        case _ => // matches (Failed with matching or any code)
       }
     }
 
     val spec = CdfSpec(startVersion, endVersion, startTimestamp, endTimestamp,
-      predicate, columns, expected, expectedError)
+      predicate, columns, expectation)
     JsonUtil.writeSpec(specPath, spec)
     validateFromSpec(spark, tablePath, expectedDir, specPath)
 
-    (expected, expectedError) match {
-      case (Some(exp), _) =>
+    expectation match {
+      case Succeeded(exp) =>
         println(s"  CDF captured: $specName (${exp.rowCount} change rows)")
-      case (_, Some(err)) =>
+      case Failed(err) =>
         println(s"  CDF captured (error): $specName [${err.errorCode}] ${err.errorMessage}")
-      case _ =>
     }
     specPath
   }
@@ -115,23 +114,17 @@ object CdfCapture {
         spec.startTimestamp, spec.endTimestamp),
       spec.predicate, spec.columns).drop("_commit_timestamp")
 
-    if (spec.expectedError.isDefined) {
-      val actualCode = try {
+    SpecOutcome.compareExpectation(spec.expectation, specName) {
+      SpecOutcome.runErrorCode {
         reader.write.format("noop").mode("overwrite").save()
         None
-      } catch {
-        case NonFatal(e) => Some(SpecOutcome.extractErrorCode(e))
       }
-      require(actualCode.isDefined,
-        s"Error validation FAILED for $specName: expected operation to fail but it succeeded")
-    } else if (spec.expected.isDefined) {
-      val rereadDf = reader
-
+    } { _ =>
       val expectedDataPath = expectedDir.resolve("expected_data")
       require(Files.exists(expectedDataPath),
         s"Validation FAILED for $specName: expected_data is missing")
       RowComparison.assertRowsEqual(
-        spark.read.parquet(expectedDataPath.toString), rereadDf, specName)
+        spark.read.parquet(expectedDataPath.toString), reader, specName)
     }
   }
 

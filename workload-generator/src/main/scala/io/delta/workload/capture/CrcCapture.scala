@@ -35,10 +35,8 @@ object CrcCapture {
       version: Long, name: String): Option[Path] = {
 
     val specName = s"${testId}_$name"
-    if (!crcFileExists(tablePath, version)) {
-      println(s"  CRC skipped: $specName (version=$version): no .crc present at that version")
-      return None
-    }
+    require(crcFileExists(tablePath, version),
+      s"CRC capture failed for $specName (version=$version): no .crc present at that version")
     val specPath = specsDir.resolve(s"$specName.json")
     JsonUtil.writeSpec(specPath, CrcSpec(version))
     println(s"  CRC captured: $specName (version=$version)")

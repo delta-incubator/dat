@@ -24,21 +24,8 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
 
   private def checkpoint(name: String): Unit = forceCheckpoint(name)
 
-  /**
-   * Append `actions` to the commit JSON at `version`. Also drops that version's `<version>.crc`
-   * (now stale w.r.t. the edited commit) so the subsequent `checkpoint()` does not trip Delta's
-   * checksum integrity check and refuse to write.
-   */
-  private def injectActions(t: TableHandle, version: Int, actions: Seq[Action]): Unit = {
-    mutateTable(t) { tableDir =>
-      val logDir = tableDir.resolve("_delta_log")
-      val commitFile = logDir.resolve(f"$version%020d.json")
-      val content = new String(java.nio.file.Files.readAllBytes(commitFile), "UTF-8")
-      java.nio.file.Files.write(commitFile,
-        (content.trim + "\n" + actions.map(_.toJson).mkString("\n") + "\n").getBytes("UTF-8"))
-      java.nio.file.Files.deleteIfExists(logDir.resolve(f"$version%020d.crc"))
-    }
-  }
+  private def injectActions(t: TableHandle, version: Int, actions: Seq[Action]): Unit =
+    injectCommitActions(t, version.toLong)(actions)
 
   // === Read/snapshot workloads over tables that have a checkpoint ===
 
@@ -619,7 +606,8 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
 
   test("cp_with_domain_metadata") {
     sql("""CREATE TABLE tbl (id INT) USING delta
-      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')""")
+      TBLPROPERTIES ('delta.enableDeletionVectors' = 'true',
+      'delta.feature.domainMetadata' = 'supported')""")
     sql("INSERT INTO tbl VALUES (1),(2),(3)")
     sql("DELETE FROM tbl WHERE id = 2")
     val t = registerTable("tbl")

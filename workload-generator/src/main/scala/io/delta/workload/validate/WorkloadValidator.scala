@@ -185,13 +185,18 @@ object WorkloadValidator {
       }
     listSpecs(specsDir).foreach { specFile =>
       val id = specFile.getFileName.toString.stripSuffix(".json")
-      def skip(v: Long): Unit =
-        println(s"  SKIP $id: spec version $v > table latest $latest (not reproduced by the engine under test)")
+      def underWrite(v: Long): SpecOutcome =
+        SpecFailed(
+          id,
+          s"spec version $v > table latest $latest: engine under test never reproduced that " +
+            s"version (silent under-write)"
+        )
       try {
         JsonUtil.readSpec(specFile) match {
-          case s: CheckpointSpec if s.version > latest => skip(s.version)
-          case s: CrcSpec if s.version > latest => skip(s.version)
-          case s: SnapshotSpec if s.query.version.exists(_ > latest) => skip(s.query.version.get)
+          case s: CheckpointSpec if s.version > latest => outcomes += underWrite(s.version)
+          case s: CrcSpec if s.version > latest => outcomes += underWrite(s.version)
+          case s: SnapshotSpec if s.query.version.exists(_ > latest) =>
+            outcomes += underWrite(s.query.version.get)
           case _: CheckpointSpec =>
             CheckpointCapture.validateFromSpec(spark, tablePath, specFile)
             outcomes += SpecPassed(id)
