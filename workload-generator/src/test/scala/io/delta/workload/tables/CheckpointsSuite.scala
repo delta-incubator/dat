@@ -171,6 +171,49 @@ class CheckpointsSuite extends WorkloadTestSuite("checkpoints") {
     snapshotSpec(t)
   }
 
+  test("prior_commits_removed") {
+    sql("CREATE TABLE tbl (id INT, value STRING) USING delta")
+    sql("INSERT INTO tbl VALUES (1, 'a')")
+    sql("INSERT OVERWRITE tbl VALUES (2, 'b')")
+    sql("INSERT OVERWRITE tbl VALUES (3, 'c')")
+    checkpoint("tbl")
+    val t = registerTable("tbl")
+    mutateTable(t) { tableDir =>
+      val logDir = tableDir.resolve("_delta_log")
+      java.nio.file.Files.delete(logDir.resolve("00000000000000000000.json"))
+      java.nio.file.Files.delete(logDir.resolve("00000000000000000001.json"))
+    }
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
+  test("struct_stats_only") {
+    sql("""CREATE TABLE tbl (id INT, value STRING) USING delta
+      TBLPROPERTIES (
+        'delta.checkpoint.writeStatsAsStruct' = 'true',
+        'delta.checkpoint.writeStatsAsJson' = 'false')""")
+    sql("INSERT INTO tbl VALUES (1, 'a'), (2, 'b')")
+    sql("INSERT INTO tbl VALUES (3, 'c')")
+    checkpoint("tbl")
+    val t = registerTable("tbl")
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
+  test("stats_disabled") {
+    sql("""CREATE TABLE tbl (id INT, value STRING) USING delta
+      TBLPROPERTIES (
+        'delta.checkpoint.writeStatsAsStruct' = 'false',
+        'delta.checkpoint.writeStatsAsJson' = 'false',
+        'delta.dataSkippingNumIndexedCols' = '0')""")
+    sql("INSERT INTO tbl VALUES (1, 'a'), (2, 'b')")
+    sql("INSERT OVERWRITE tbl VALUES (3, 'c')")
+    checkpoint("tbl")
+    val t = registerTable("tbl")
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
   test("v2_basic") {
     sql("""CREATE TABLE tbl (id INT, name STRING) USING delta
       TBLPROPERTIES ('delta.checkpointPolicy' = 'v2',
