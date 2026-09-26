@@ -1,6 +1,5 @@
-# setup the local environment to develop dat
+# setup local pre-commit hooks
 setup:
-    uv sync
     uvx pre-commit install
 
 # update pre-commit hooks
@@ -11,12 +10,9 @@ update-hooks:
 lint:
     uvx pre-commit run --all-files
 
-# run unit tests
+# run workload-generator tests
 test:
-    uv run --no-sync pytest tests
+    cd workload-generator && sbt test
 
-generate-tables:
-    uv run dat generate-tables
-
-generate-schemas:
-    uv run dat generate-schemas
+generate-workloads output="/tmp/dat-workloads":
+    cd workload-generator && WORKLOAD_OUTPUT_DIR={{output}} sbt "testOnly io.delta.workload.tables.*"

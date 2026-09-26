@@ -2,33 +2,23 @@
 
 ## Getting started
 
-This repository uses `poetry` to handle Python dependencies and an isolated environment. To install the environment, run
+The workload generator is an sbt project. To compile it, run
 
 ```
-poetry install
+cd workload-generator
+sbt Test/compile
 ```
 
-Most common tasks are defined in the Makefile. For example, to lint the Python files run
+Most common tasks are defined in the justfile. For example, to run tests:
 
 ```
-make lint
+just test
 ```
 
-To open a shell session within the poetry environment, use
+## Generating workloads locally
 
-```
-poetry shell
-```
-
-## Generating reference tables locally
-
-Reader test cases are defined in `dat/generated_tables.py`. Currently, they are all defined in terms of PySpark code. If there is a table that doesn't fit into that paradigm, create an issue on the repository and we will consider other modes of adding tables.
-
-To regenerate tables, run
-
-```
-make write-generated-tables
-``` 
+Workload suites are defined under `workload-generator/src/test/scala/io/delta/workload/tables`.
+See `workload-generator/docs/authoring-guide.md` for authoring and generation instructions.
 
 ## Adding writer tests
 
@@ -36,9 +26,4 @@ TBD
 
 ## Running unit tests
 
-Note: You need to generate the reference tables locally in order to run the unit tests.
-
-You can run the unit tests with `poetry run pytest tests`.
-
-If you've already run `poetry shell`, you can run the tests with `pytest tests`.
-
+Run `just test`, or use the focused sbt commands documented in `workload-generator/README.md`.
