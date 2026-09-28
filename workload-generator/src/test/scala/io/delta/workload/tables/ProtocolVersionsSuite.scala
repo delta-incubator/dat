@@ -24,6 +24,15 @@ import io.delta.workload.WorkloadTestSuite
  */
 class ProtocolVersionsSuite extends WorkloadTestSuite("protocol_versions") {
 
+  test("iceberg_compat_v1") {
+    sql("""CREATE TABLE tbl (id INT, value STRING) USING delta
+      TBLPROPERTIES ('delta.enableIcebergCompatV1' = 'true')""")
+    sql("INSERT INTO tbl VALUES (1, 'a'), (2, 'b')")
+    val t = registerTable("tbl")
+    readSpec(t)
+    snapshotSpec(t)
+  }
+
   // pv_001*: Basic protocol version tables
 
   test("protocol_1_1") {
