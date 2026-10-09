@@ -375,13 +375,25 @@ These map to SQL-like operations. The writer translates them to appropriate Delt
 
 | Operation | Fields | Description |
 |-----------|--------|-------------|
-| `create_table` | `schema`, `partitionColumns?`, `properties?` | Create a new table with the given schema (`schema` is a Delta-JSON struct) |
+| `create_table` | `schema`, `partitionColumns?`, `properties?`, `createSql?` | Create a new table with the given schema (`schema` is a Delta-JSON struct); `createSql` optionally supplies the Spark SQL creation template |
 | `replace_table` | `schema`, `partitionColumns?`, `properties?`, `dataFiles?` | Replace the table's schema/partitioning/properties (and all data). With `dataFiles` it is a replace-as-select: a single commit that also writes the bundled data. |
 | `insert` | `dataFiles?` | Append the rows in the bundled Parquet data files |
 | `update` | `predicate`, `set` | Update rows matching `predicate`; `set` maps column → SQL expression |
 | `delete` | `predicate` | Delete rows matching `predicate` (SQL WHERE clause) |
 | `evolve_schema` | `addColumns?`, `renameColumns?`, `dropColumns?` | Modify table schema. `addColumns` entries are `{name, type, nullable}`; `renameColumns` maps old → new |
 | `update_properties` | `set?`, `remove?` | Modify table properties (`set` map, `remove` names) |
+
+`createTableOp` exports `createSql` using the same SQL template it executes to create the
+reference table. The template starts with `CREATE TABLE {{table}} (`. SQL consumers replace
+only that target placeholder with their own quoted table identifier or Delta path reference,
+then execute the statement. Placeholder text inside column definitions, comments, or property
+values must remain unchanged. The template contains the column definitions, partition clause,
+and table properties; it does not contain the reference table's name or storage location.
+
+The structured `schema`, `partitionColumns`, and `properties` remain available to consumers
+that do not execute SQL. Older corpora can omit `createSql`; SQL consumers then construct the
+creation statement from the structured fields. The exported template uses Spark/Delta SQL
+and must agree with the structured definition. Other operations do not export SQL templates.
 
 The data for `insert` and `replace_table` is bundled as Parquet under `data/commit_N/` (the
 generator's authoring API accepts in-memory rows, but the spec always stores Parquet). A
@@ -464,7 +476,8 @@ The write spec itself only asserts that the replay succeeds and produces the exp
           { "name": "status", "type": "string", "nullable": true, "metadata": {} }
         ]
       },
-      "properties": { "delta.enableDeletionVectors": "true" }
+      "properties": { "delta.enableDeletionVectors": "true" },
+      "createSql": "CREATE TABLE {{table}} (id INT NOT NULL, status STRING) USING delta TBLPROPERTIES ('delta.enableDeletionVectors' = 'true')"
     },
     { "operation": "insert", "dataFiles": ["data/commit_1/part-0000-abc.parquet"] },
     { "operation": "delete", "predicate": "id > 100" },

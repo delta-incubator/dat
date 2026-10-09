@@ -184,12 +184,15 @@ trait WorkloadOps {
       properties: Map[String, String] = Map.empty,
       partitionColumns: Seq[String] = Seq.empty): WriteHandle = {
     val ctx = WorkloadContext.current
-    ctx.sql(TableSql.createTable(tableName, schema, partitionColumns, properties))
+    val createSql = TableSql.createTable(
+      TableSql.tablePlaceholder, schema, partitionColumns, properties)
+    ctx.sql(TableSql.bindCreateTable(createSql, tableName))
     val t = ctx.registerTable(tableName)
     ctx.getWriteBuilder(t).record(CreateTableCommit(
       schema = schema,
       partitionColumns = ctx.toOption(partitionColumns),
-      properties = ctx.toOption(properties)))
+      properties = ctx.toOption(properties),
+      createSql = Some(createSql)))
     new WriteHandle(t)
   }
 

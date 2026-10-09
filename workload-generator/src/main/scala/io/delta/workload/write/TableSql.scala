@@ -24,12 +24,22 @@ import org.apache.spark.sql.types.StructType
  */
 private[workload] object TableSql {
 
+  val tablePlaceholder: String = "{{table}}"
+
   /** `CREATE [OR REPLACE] TABLE ref (cols) USING delta [PARTITIONED BY …] [TBLPROPERTIES …]`. */
   def createTable(
       ref: String, schema: StructType, partitionColumns: Seq[String],
       properties: Map[String, String], orReplace: Boolean = false): String =
     s"CREATE ${if (orReplace) "OR REPLACE " else ""}TABLE $ref (${schema.toDDL}) USING delta" +
       partitionedBy(partitionColumns) + tblProperties(properties)
+
+  /** Bind the CREATE TABLE target without replacing placeholder text inside SQL literals. */
+  def bindCreateTable(sql: String, ref: String): String = {
+    val prefix = s"CREATE TABLE $tablePlaceholder"
+    require(sql.startsWith(prefix + " ("),
+      s"createSql must start with '$prefix ('")
+    s"CREATE TABLE $ref${sql.substring(prefix.length)}"
+  }
 
   /** `CREATE OR REPLACE TABLE ref USING delta [PARTITIONED BY …] [TBLPROPERTIES …] AS <select>` (RTAS). */
   def replaceTableAsSelect(

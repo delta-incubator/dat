@@ -101,12 +101,14 @@ sealed trait WriteCommit {
 
 // ---- High-level operations (replayed from parameters) ----
 
-@JsonPropertyOrder(Array("schema", "partitionColumns", "properties"))
+/** createSql optionally supplies Spark SQL for the same definition, with a {{table}} target. */
+@JsonPropertyOrder(Array("schema", "partitionColumns", "properties", "createSql"))
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 case class CreateTableCommit(
     schema: StructType,
     partitionColumns: Option[Seq[String]] = None,
-    properties: Option[Map[String, String]] = None) extends WriteCommit {
+    properties: Option[Map[String, String]] = None,
+    createSql: Option[String] = None) extends WriteCommit {
   @JsonIgnore val operation = "create_table"
 }
 

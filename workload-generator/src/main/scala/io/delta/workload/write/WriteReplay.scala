@@ -65,8 +65,12 @@ object WriteReplay {
       spark: SparkSession, commit: WriteCommit, idx: Int,
       tableRef: String, tablePath: String, testDir: Path): Unit = commit match {
     case c: CreateTableCommit =>
-      spark.sql(TableSql.createTable(tableRef, c.schema,
-        c.partitionColumns.getOrElse(Nil), c.properties.getOrElse(Map.empty)))
+      val sql = c.createSql match {
+        case Some(template) => TableSql.bindCreateTable(template, tableRef)
+        case None => TableSql.createTable(tableRef, c.schema,
+          c.partitionColumns.getOrElse(Nil), c.properties.getOrElse(Map.empty))
+      }
+      spark.sql(sql)
 
     case c: ReplaceTableCommit =>
       // Always replace via AS SELECT: `CREATE OR REPLACE TABLE delta.`path` (cols)` is treated as

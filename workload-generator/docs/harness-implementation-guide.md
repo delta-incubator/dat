@@ -211,6 +211,27 @@ Run the operation and assert it fails. Matching the exact error code is ideal bu
 
 A `write` spec (`specs/<name>_write.json`) is a portable recipe for *building* a table: an ordered list of `commits` your harness replays into a fresh table. High-level commits (create/replace/insert/delete/update/schema-evolution/properties) are replayed through your engine's normal write APIs; low-level `commit`s carry raw actions (the data files hold logical rows your engine writes through its own write path, so physical names/stats are engine-derived, and removes reference a prior add by commit ordinal == table version). See the [Write Spec reference](spec-reference.md#write-spec) for the field-level contract.
 
+For `create_table`, a Spark/Delta SQL consumer can execute the optional `createSql` template
+instead of converting the structured schema to SQL. Bind only the target placeholder at the
+start of the statement; leave placeholder text inside column definitions and literals intact.
+For example, given a template and an already-quoted destination table reference:
+
+```scala
+val prefix = "CREATE TABLE {{table}}"
+require(template.startsWith(prefix + " ("))
+val statement = "CREATE TABLE " + targetTableRef + template.substring(prefix.length)
+executeSql(statement)
+```
+
+Execute this statement through the harness's SQL setup engine. A separate row-ingestion API
+still receives rows. If `createSql` is absent, construct the statement from `schema`,
+`partitionColumns`, and `properties`; consumers without SQL support use those structured
+fields directly. The template dialect and binding rules are specified in the
+[creation SQL contract](spec-reference.md#high-level-operations).
+
+Readback filters and projections use the existing read-spec `predicate` and `columns`
+fields. `createSql` does not add SQL templates for reads or other write operations.
+
 The write spec has no expected-data artifact of its own. Its own check is **basic**: the replay must succeed and produce the expected number of versions (`finalVersion == commits.size - 1`). The final-state rows are validated by an auto-generated baseline read spec named `latest` (`specs/<name>_latest.json` with rows under `expected/<name>_latest/expected_data/`), and per-version protocol/metadata by the snapshot spec(s).
 
 Because a write spec is replayed (not byte-compared), comparison is **portable**: rows-only data checks, capability-based protocol comparison (your table may use explicit table features where Spark used legacy versions), and column-mapping-normalized schema. A write spec's presence makes its whole directory *write-derived*: replay it into a fresh table once, then validate every read/snapshot spec in that directory (including the baseline `latest` read) against the replay (portably), rather than against a captured `delta/` directory.
