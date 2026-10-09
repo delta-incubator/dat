@@ -18,14 +18,19 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path}
 
+import scala.collection.immutable.ListMap
+
+import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types._
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 
+import io.delta.workload.json.JsonUtil
 import io.delta.workload.model._
 import io.delta.workload.validate.WorkloadValidator
+import io.delta.workload.write.WriteReplay
 
 /**
  * Verifies [[WorkloadValidator]] can re-validate a workload tree produced by
@@ -118,6 +123,61 @@ class WorkloadValidatorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       s"write workload should validate; errors:\n  ${result.errors.mkString("\n  ")}")
     assert(result.passed >= 3,
       s"expected >= 3 specs (write + read + snapshot), got ${result.passed}")
+  }
+
+  test("write replay executes the supplied creation SQL") {
+    val testDir = Files.createDirectory(outputDir.resolve("sql_replay"))
+    val specPath = testDir.resolve("create_write.json")
+    val schema = new StructType().add("id", IntegerType)
+    JsonUtil.writeSpec(specPath, WriteSpec(Seq(CreateTableCommit(schema,
+      createSql = Some("CREATE TABLE {{table}} (id INT) USING delta " +
+        "COMMENT 'from exported SQL'")))))
+    val replayPath = testDir.resolve("replayed")
+    WriteReplay.replayInto(spark, testDir, specPath, replayPath)
+    val description = spark.sql(s"DESCRIBE DETAIL delta.`${replayPath.toAbsolutePath}`")
+      .select("description").head().getString(0)
+    assert(description == "from exported SQL")
+  }
+
+  Seq(true, false).foreach { includeSql =>
+    test(s"validates partitioned nested writes with createSql present=$includeSql") {
+      val name = s"val_create_sql_$includeSql"
+      val tableName = s"create_sql_$includeSql"
+      spark.sql(s"DROP TABLE IF EXISTS $tableName")
+      generate(name) {
+        val schema = new StructType()
+          .add("id", IntegerType, nullable = false)
+          .add("region", StringType)
+          .add("details", new StructType().add("labels", ArrayType(StringType)))
+        val w = createTableOp(tableName, schema,
+          partitionColumns = Seq("region"),
+          properties = ListMap("delta.appendOnly" -> "true", "note" -> "{{table}}"))
+        insertOp(w, Seq(Map(
+          "id" -> 1, "region" -> "east",
+          "details" -> Map("labels" -> Seq("a", "b")))))
+        val t = endWrite(w)
+        readSpec(t)
+        snapshotSpec(t)
+      }
+
+      val testDir = outputDir.resolve(name)
+      val specPath = testDir.resolve("specs").resolve(s"${name}_write.json")
+      val spec = JsonUtil.mapper.readTree(Files.readAllBytes(specPath))
+      val create = spec.path("commits").get(0).asInstanceOf[ObjectNode]
+      val createSql = create.path("createSql").asText()
+      assert(createSql == "CREATE TABLE {{table}} (id INT NOT NULL,region STRING," +
+        "details STRUCT<labels: ARRAY<STRING>>) USING delta PARTITIONED BY (region) " +
+        "TBLPROPERTIES ('delta.appendOnly' = 'true', 'note' = '{{table}}')")
+      if (!includeSql) {
+        create.remove("createSql")
+        Files.write(specPath, JsonUtil.mapper.writeValueAsBytes(spec))
+      }
+
+      val result = WorkloadValidator.validateTestDir(spark, testDir)
+      assert(result.success,
+        s"createSql present=$includeSql; errors:\n  ${result.errors.mkString("\n  ")}")
+      assert(result.passed >= 3)
+    }
   }
 
   test("validator reports failures when the table diverges from the spec") {

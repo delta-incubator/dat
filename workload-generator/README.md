@@ -160,6 +160,12 @@ See the [Spec Format Reference](docs/spec-reference.md) for the complete JSON sc
 
 The write DSL (`createTableOp`, `insertOp`, `commitOp`, …) is exposed by `WorkloadOps`; see the [Authoring Guide](docs/authoring-guide.md) for how to author write workloads. There is no per-spec `writeSpec` pointer: whether the `read`/`snapshot` specs in a directory validate against the captured `delta/` table or against a replay of the sibling write spec is decided per directory — if a `*_write.json` is present, they are validated *portably* against the replay (replay the write spec into a fresh table, then compare).
 
+`create_table` commits include an optional `createSql` template for Spark/Delta SQL consumers.
+It uses the generator's creation SQL with a destination-table placeholder; structured schema,
+partition columns, and properties remain available to non-SQL consumers. See the
+[creation SQL contract](docs/spec-reference.md#high-level-operations) for target binding and
+the fallback when the field is absent.
+
 ## Workload Suites
 
 Workload suites are in `src/test/scala/io/delta/workload/tables/`. Each suite extends `WorkloadTestSuite` and covers a specific Delta feature area (reads, deletion vectors, column mapping, time travel, checkpoints, data skipping, protocol versions, merge, schema evolution, type widening, variant, row tracking, in-commit timestamps, and more).

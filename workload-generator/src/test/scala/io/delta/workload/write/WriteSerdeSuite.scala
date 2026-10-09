@@ -30,7 +30,8 @@ class WriteSerdeSuite extends AnyFunSuite {
 
   test("WriteSpec: a mixed commit sequence round-trips, preserving each commit subtype") {
     val spec = WriteSpec(Seq(
-      CreateTableCommit(schema, partitionColumns = Some(Seq("id"))),
+      CreateTableCommit(schema, partitionColumns = Some(Seq("id")),
+        createSql = Some("CREATE TABLE {{table}} (id INT, v STRING) USING delta PARTITIONED BY (id)")),
       InsertCommit(Some(Seq("data/0.parquet"))),
       DeleteCommit("id = 1"),
       UpdateCommit("id = 2", Map("v" -> "'x'")),
@@ -51,5 +52,31 @@ class WriteSerdeSuite extends AnyFunSuite {
   test("polymorphic Spec dispatch: a write spec deserializes to WriteSpec") {
     val json = mapper.writeValueAsString(WriteSpec(Seq.empty): Spec)
     assert(mapper.readValue(json, classOf[Spec]).isInstanceOf[WriteSpec])
+  }
+
+  test("create_table without createSql deserializes and omits the optional field") {
+    val json = """{"type":"write","commits":[{"operation":"create_table","schema":{
+      "type":"struct","fields":[
+        {"name":"id","type":"integer","nullable":true,"metadata":{}},
+        {"name":"v","type":"string","nullable":true,"metadata":{}}]}}]}"""
+    val spec = mapper.readValue(json, classOf[WriteSpec])
+    assert(spec.commits == Seq(CreateTableCommit(schema)))
+    val serialized = mapper.readTree(mapper.writeValueAsString(spec))
+    assert(!serialized.path("commits").get(0).has("createSql"))
+  }
+
+  test("CREATE TABLE binding preserves placeholder text in columns and property values") {
+    val sql = "CREATE TABLE {{table}} (`{{table}}` STRING) USING delta " +
+      "TBLPROPERTIES ('note' = '{{table}}')"
+    val ref = "`catalog`.`schema`.`table$with`"
+    assert(TableSql.bindCreateTable(sql, ref) ==
+      s"CREATE TABLE $ref (`{{table}}` STRING) USING delta " +
+        "TBLPROPERTIES ('note' = '{{table}}')")
+  }
+
+  test("CREATE TABLE binding rejects a missing target placeholder") {
+    intercept[IllegalArgumentException] {
+      TableSql.bindCreateTable("CREATE TABLE original (id INT) USING delta", "destination")
+    }
   }
 }

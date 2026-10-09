@@ -92,13 +92,13 @@ Inside a test body, these methods are available directly (via `WorkloadOps` trai
 | SQL | `sql(statement)` | — |
 | Table handles | `registerTable(name)`, `registerTableFromPath(path)` | → `TableHandle` |
 | Read specs | `readSpec(t, ...)`, `snapshotSpec(t, ...)` | `TableHandle` → `SpecRef` |
-| Write specs | `createTableOp`, `replaceTableOp`, `insertOp`, `deleteOp`, `updateOp`, `addColumnsOp`, `renameColumnOp`, `dropColumnsOp`, `setPropertiesOp`, `unsetPropertiesOp`, `commitOp` (low-level) | → `WriteHandle`; `registerWriteSpec(w)` → `TableHandle` |
+| Write specs | `createTableOp`, `replaceTableOp`, `insertOp`, `deleteOp`, `updateOp`, `addColumnsOp`, `renameColumnOp`, `dropColumnsOp`, `setPropertiesOp`, `unsetPropertiesOp`, `commitOp` (low-level) | → `WriteHandle`; `endWrite(w)` → `TableHandle` |
 | Checkpointing | `forceCheckpoint(tableName)` — triggers a checkpoint via DeltaLog | — |
 | Mutations | `mutateTable(t) { dir => ... }`, `modifyCommitActions(t, version) { ... }` | `TableHandle` |
 
 ### Authoring a write workload
 
-A write workload builds a table through DSL ops instead of raw `sql(...)`, producing a portable `write` spec (`specs/<name>_write.json`) plus any `read`/`snapshot` specs derived from the built table. Start with `createTableOp` (or `replaceTableOp`), apply ops, then `registerWriteSpec(w)` to get a `TableHandle` you can attach reads/snapshots to:
+A write workload builds a table through DSL ops instead of raw `sql(...)`, producing a portable `write` spec (`specs/<name>_write.json`) plus any `read`/`snapshot` specs derived from the built table. Start with `createTableOp`, apply ops, then `endWrite(w)` to get a `TableHandle` you can attach reads/snapshots to:
 
 ```scala
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
@@ -108,14 +108,20 @@ val w = createTableOp("tbl", schema = schema)
 insertOp(w, Seq(Map("id" -> 1, "name" -> "alice")))
 // Low-level commit: logical rows are written through the engine (stats/partitionValues derived).
 commitOp(w, addFiles = Some(Seq(AddFileInput(rows = Seq(Map("id" -> 2, "name" -> "bob"))))))
-val t = registerWriteSpec(w)
-readSpec(t, name = "read_all")
+val t = endWrite(w)
+readSpec(t, name = Some("read_all"))
 snapshotSpec(t)
 ```
 
 The write-op schema inputs (`createTableOp`, `replaceTableOp`, `addColumnsOp`, and `commitOp`'s
 optional `schema`) are Spark `StructType`s, not DDL strings. The generator stores them as Delta
 schema JSON in the spec.
+
+`createTableOp` also exports its Spark/Delta creation SQL as `createSql`, with `{{table}}`
+in place of the reference table's name. Authors do not need to supply SQL separately.
+The schema, partition columns, and properties remain in the commit for consumers that
+use their own table-creation API. Calling `sql("CREATE TABLE ...")` alone does not export
+a creation template. See the [creation SQL contract](spec-reference.md#high-level-operations).
 
 `commitOp` returns the commit's ordinal (== table version); a later `removeFiles = Some(Seq(ordinal))` tombstones the files that commit added. See `WriteBasicSuite`/`WriteCommitSuite`/`WriteSequencesSuite` for worked examples and the [Write Spec reference](spec-reference.md#write-spec) for the on-disk format.
 
