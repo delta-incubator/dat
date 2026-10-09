@@ -30,15 +30,15 @@ private[workload] object TableSql {
   def createTable(
       ref: String, schema: StructType, partitionColumns: Seq[String],
       properties: Map[String, String], orReplace: Boolean = false): String =
-    s"CREATE ${if (orReplace) "OR REPLACE " else ""}TABLE $ref (${schema.toDDL}) USING delta" +
+    s"${createTablePrefix(ref, orReplace)} (${schema.toDDL}) USING delta" +
       partitionedBy(partitionColumns) + tblProperties(properties)
 
   /** Bind the CREATE TABLE target without replacing placeholder text inside SQL literals. */
   def bindCreateTable(sql: String, ref: String): String = {
-    val prefix = s"CREATE TABLE $tablePlaceholder"
+    val prefix = createTablePrefix(tablePlaceholder)
     require(sql.startsWith(prefix + " ("),
       s"createSql must start with '$prefix ('")
-    s"CREATE TABLE $ref${sql.substring(prefix.length)}"
+    s"${createTablePrefix(ref)}${sql.substring(prefix.length)}"
   }
 
   /** `CREATE OR REPLACE TABLE ref USING delta [PARTITIONED BY …] [TBLPROPERTIES …] AS <select>` (RTAS). */
@@ -47,6 +47,9 @@ private[workload] object TableSql {
       properties: Map[String, String]): String =
     s"CREATE OR REPLACE TABLE $ref USING delta" +
       partitionedBy(partitionColumns) + tblProperties(properties) + s" AS $select"
+
+  private def createTablePrefix(ref: String, orReplace: Boolean = false): String =
+    s"CREATE ${if (orReplace) "OR REPLACE " else ""}TABLE $ref"
 
   private def partitionedBy(columns: Seq[String]): String =
     if (columns.nonEmpty) s" PARTITIONED BY (${columns.mkString(", ")})" else ""

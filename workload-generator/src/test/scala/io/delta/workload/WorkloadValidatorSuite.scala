@@ -18,6 +18,8 @@ package io.delta.workload
 
 import java.nio.file.{Files, Path}
 
+import scala.collection.immutable.ListMap
+
 import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.commons.io.FileUtils
 import org.apache.spark.sql.SparkSession
@@ -149,7 +151,7 @@ class WorkloadValidatorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
           .add("details", new StructType().add("labels", ArrayType(StringType)))
         val w = createTableOp(tableName, schema,
           partitionColumns = Seq("region"),
-          properties = Map("delta.appendOnly" -> "true", "note" -> "{{table}}"))
+          properties = ListMap("delta.appendOnly" -> "true", "note" -> "{{table}}"))
         insertOp(w, Seq(Map(
           "id" -> 1, "region" -> "east",
           "details" -> Map("labels" -> Seq("a", "b")))))
@@ -163,9 +165,9 @@ class WorkloadValidatorSuite extends AnyFunSuite with BeforeAndAfterAll with Wor
       val spec = JsonUtil.mapper.readTree(Files.readAllBytes(specPath))
       val create = spec.path("commits").get(0).asInstanceOf[ObjectNode]
       val createSql = create.path("createSql").asText()
-      assert(createSql.startsWith("CREATE TABLE {{table}} ("))
-      assert(createSql.contains("PARTITIONED BY (region)"))
-      assert(createSql.contains("'note' = '{{table}}'"))
+      assert(createSql == "CREATE TABLE {{table}} (id INT NOT NULL,region STRING," +
+        "details STRUCT<labels: ARRAY<STRING>>) USING delta PARTITIONED BY (region) " +
+        "TBLPROPERTIES ('delta.appendOnly' = 'true', 'note' = '{{table}}')")
       if (!includeSql) {
         create.remove("createSql")
         Files.write(specPath, JsonUtil.mapper.writeValueAsBytes(spec))
