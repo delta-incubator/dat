@@ -16,7 +16,21 @@
 
 package io.delta.workload.tables
 
+import java.nio.file.{Files, Path, Paths}
+
+import scala.jdk.CollectionConverters._
+
+import org.apache.hadoop.fs.{Path => HadoopPath}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.delta.DeltaLog
+import org.apache.spark.sql.types.{DataType, IntegerType, StringType, StructType}
+
 import io.delta.workload.WorkloadTestSuite
+import io.delta.workload.deltaharness.{Format => HarnessFormat}
+import io.delta.workload.engine.{RowComparison, SnapshotResolver}
+import io.delta.workload.json.JsonUtil
+import io.delta.workload.log.{AddFile, CommitLog, Metadata, Protocol}
+import io.delta.workload.model._
 
 /**
  * Consolidated read workloads.
@@ -538,6 +552,140 @@ class ReadsSuite extends WorkloadTestSuite("reads") {
     readSpec(t)
     readSpec(t, predicate = "id < 5", name = Some("read_filtered"))
     snapshotSpec(t)
+  }
+
+  // Relative Unicode file paths in a relocated table.
+  test("e2e_58_unicode_路径") {
+    // The generator copies contents into <fixture>/delta. Relative log paths must
+    // survive both the Unicode source root and that different destination root.
+    val parent = Files.createTempDirectory("paths-source-")
+    val source = parent.resolve("源_café_表_😀")
+    sql(s"""CREATE TABLE tbl (id INT, value STRING) USING delta LOCATION '$source'
+      TBLPROPERTIES ('delta.enableDeletionVectors' = 'false',
+      'delta.checkpointInterval' = '1000', 'delta.checkpointPolicy' = 'classic')""")
+    sql("""INSERT INTO tbl SELECT /*+ COALESCE(1) */ * FROM VALUES
+      (-7, 'base'), (4, CAST(NULL AS STRING)), (4, CAST(NULL AS STRING)),
+      (CAST(NULL AS INT), 'missing') AS v(id, value)""")
+    sql("""INSERT INTO tbl SELECT /*+ COALESCE(1) */ * FROM VALUES
+      (4, CAST(NULL AS STRING)), (23, 'end'),
+      (CAST(NULL AS INT), CAST(NULL AS STRING)) AS v(id, value)""")
+    // Canonically equivalent NFC/NFD basenames must remain distinct byte names.
+    val basenames = Seq("données_café_表_😀.parquet", "données_cafe\u0301_表_😀.parquet")
+    assert(basenames.distinct.size == 2)
+    val schema = new StructType().add("id", IntegerType).add("value", StringType)
+    val first = Seq(Row(-7, "base"), Row(4, null), Row(4, null), Row(null, "missing"))
+    val second = Seq(Row(4, null), Row(23, "end"), Row(null, null))
+    val inputRows = Seq(first, second)
+    val renamedAdds = (1L to 2L).map { v =>
+      val add = CommitLog.read(source, v).collect { case a: AddFile => a }
+        .ensuring(_.size == 1).head
+      assert(!add.path.contains("/") && add.deletionVector.isEmpty)
+      val basename = basenames((v - 1).toInt)
+      val file = source.resolve(basename)
+      Files.move(source.resolve(add.path), file)
+      // Change only the file reference in raw JSON; preserve every other action field.
+      val commit = CommitLog.commitFile(source, v)
+      val lines = Files.readAllLines(commit).asScala.map { line =>
+        val node = JsonUtil.mapper.readTree(line)
+        if (node.has("add")) {
+          node.get("add").asInstanceOf[com.fasterxml.jackson.databind.node.ObjectNode]
+            .put("path", new HadoopPath(basename).toUri.toString)
+        }
+        node.toString
+      }
+      Files.write(commit, lines.asJava)
+      val physical = spark.read.parquet(file.toString)
+      assert(physical.schema == schema)
+      RowComparison.assertRowsEqual(spark.createDataFrame(inputRows((v - 1).toInt).asJava,
+        schema), physical, s"paths source physical v$v")
+      val renamed = CommitLog.read(source, v).collect { case a: AddFile => a }.head
+      assert(new HadoopPath(renamed.path).toUri.getPath == basename)
+      assert(Files.size(file) == renamed.size)
+      renamed
+    }
+    // Version checksums can embed the old paths; do not transport stale checksums.
+    val logs = Files.list(source.resolve("_delta_log"))
+    try logs.iterator().asScala.filter(_.getFileName.toString.endsWith(".crc"))
+      .foreach(Files.delete)
+    finally logs.close()
+    val commits = (0L to 2L).map(v => v -> Files.readAllBytes(
+      CommitLog.commitFile(source, v))).toMap
+    val metadata = CommitLog.read(source, 0L).collect { case m: Metadata => m }
+      .ensuring(_.size == 1).head
+    val configuration = Map("delta.enableDeletionVectors" -> "false",
+      "delta.checkpointInterval" -> "1000", "delta.checkpointPolicy" -> "classic")
+    assert(CommitLog.read(source, 0L).collect { case p: Protocol => p } == Seq(Protocol(1, 2)))
+    assert(DataType.fromJson(metadata.schemaString) == schema)
+    assert(metadata.partitionColumns.isEmpty && metadata.configuration == configuration)
+    val expectedSnapshot = SnapshotResult(ProtocolInfo(1, 2),
+      MetadataInfo(metadata.id, metadata.name, metadata.description,
+        HarnessFormat("parquet", Map.empty), schema.json, Seq.empty,
+        configuration, metadata.createdTime))
+    val table = registerTableFromPath(source.toString)
+    var copiedTable: Path = null
+    mutateTable(table) { dir =>
+      copiedTable = dir
+      assert(dir != source && dir.getParent.getFileName.toString.endsWith("路径"))
+      commits.foreach { case (v, bytes) =>
+        assert(Files.readAllBytes(CommitLog.commitFile(dir, v)).sameElements(bytes))
+        assert(!new String(bytes, java.nio.charset.StandardCharsets.UTF_8)
+          .contains(source.toString))
+      }
+      basenames.foreach { basename =>
+        val file = dir.resolve(basename)
+        assert(file.getFileName.toString.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+          .sameElements(basename.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+        assert(Files.readAllBytes(file).sameElements(Files.readAllBytes(source.resolve(basename))))
+      }
+      // Remove the entire source before any snapshot/read capture. An absolute or
+      // stale reference to it cannot make the relocated fixture pass by accident.
+      org.apache.commons.io.FileUtils.deleteDirectory(parent.toFile)
+      assert(!Files.exists(parent) && !Files.exists(source))
+      DeltaLog.clearCache()
+      info(s"paths source removed: $source; relocated root: $dir")
+    }
+    Seq[java.lang.Long](0L, 1L, 2L, null).foreach { version =>
+      val v = Option(version).fold(2L)(_.toLong)
+      snapshotSpec(table, version = version).assert { spec =>
+        assert(!Files.exists(source))
+        assert(spec.query == SnapshotQuery(version = Some(v)))
+        assert(spec.expectation == Succeeded(expectedSnapshot))
+        val snapshot = DeltaLog.forTable(spark, copiedTable.toString).getSnapshotAt(v)
+        assert(snapshot.allFiles.collect().map(_.path).toSet ==
+          renamedAdds.take(v.toInt).map(_.path).toSet)
+        assert(snapshot.logSegment.checkpointProvider.version == -1L)
+      }
+    }
+    val projected = new StructType().add("value", StringType).add("id", IntegerType)
+    val cases = Seq(
+      ("read_v1", ReadQuery(version = Some(1L)), schema, first, 1),
+      ("read_v2", ReadQuery(version = Some(2L)), schema, first ++ second, 2),
+      ("read_latest", ReadQuery(), schema, first ++ second, 2),
+      ("read_selective", ReadQuery(predicate = Some("id = 4 OR id IS NULL"),
+        columns = Some(Seq("value", "id"))), projected,
+        Seq(Row(null, 4), Row(null, 4), Row(null, 4), Row("missing", null), Row(null, null)), 2))
+    cases.foreach { case (name, query, expectedSchema, rows, files) =>
+      readSpec(table, name = Some(name), version = query.version.map(Long.box).orNull,
+        predicate = query.predicate.orNull, columns = query.columns).assert { spec =>
+        assert(!Files.exists(source))
+        assert(spec.query == query)
+        assert(spec.expectation == Succeeded(ReadResult(rows.size.toLong, files, 0L)))
+        val actual = SnapshotResolver.applyFilters(
+          SnapshotResolver.buildDeltaReader(spark, copiedTable, query.version, query.timestamp),
+          query.predicate, query.columns)
+        val paths = actual.inputFiles.map(p => Paths.get(java.net.URI.create(p))).toSet
+        val expectedFiles = basenames.take(files).map(copiedTable.resolve).toSet
+        assert(paths == expectedFiles && paths.forall(_.startsWith(copiedTable)))
+        assert(actual.schema == expectedSchema)
+        val expected = spark.createDataFrame(rows.asJava, expectedSchema)
+        RowComparison.assertRowsEqual(expected, actual, s"paths $name relocated table")
+        val fixture = copiedTable.getParent
+        val captured = spark.read.parquet(fixture.resolve(
+          s"expected/${fixture.getFileName}_$name/expected_data").toString)
+        assert(captured.schema == expectedSchema)
+        RowComparison.assertRowsEqual(expected, captured, s"paths $name expected parquet")
+      }
+    }
   }
 
 }
