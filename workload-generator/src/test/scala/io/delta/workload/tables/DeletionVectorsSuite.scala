@@ -16,7 +16,23 @@
 
 package io.delta.workload.tables
 
-import io.delta.workload.WorkloadTestSuite
+import java.nio.file.{Files, Path}
+
+import scala.collection.JavaConverters._
+
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
+import org.apache.spark.sql.delta.deletionvectors.RoaringBitmapArray
+import org.apache.spark.sql.types.{DataType, IntegerType, StringType, StructType}
+
+import io.delta.workload.{WorkloadContext, WorkloadTestSuite}
+import io.delta.workload.deltaharness.{Format => HarnessFormat}
+import io.delta.workload.engine.{RowComparison, SnapshotResolver}
+import io.delta.workload.json.JsonUtil
+import io.delta.workload.log.{Action, AddFile, CommitLog, DeletionVector, Metadata, Protocol,
+  RemoveFile}
+import io.delta.workload.model._
+import io.delta.workload.tables.DeletionVectorPayloads.{payload, sidecar}
 
 class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
 
@@ -791,6 +807,176 @@ class DeletionVectorsSuite extends WorkloadTestSuite("deletion_vectors") {
     val t = registerTable("tbl")
     readSpec(t, name = Some("read_no_dv_table"))
     snapshotSpec(t)
+  }
+
+  // Inline and UUID-relative deletion vectors with the same engine-written bitmap.
+  Seq("inline", "uuid_relative").foreach { form =>
+    test(s"e2e_42_$form") {
+      sql("""CREATE TABLE tbl (id INT, value STRING) USING delta TBLPROPERTIES (
+        'delta.enableDeletionVectors' = 'true', 'delta.checkpointInterval' = '1000',
+        'delta.checkpointPolicy' = 'classic')""")
+      sql("""INSERT INTO tbl SELECT /*+ COALESCE(1) */ * FROM VALUES
+        (-7, 'remove'), (0, 'keep'), (4, CAST(NULL AS STRING)), (4, CAST(NULL AS STRING)),
+        (9, 'remove'), (12, 'keep'), (18, CAST(NULL AS STRING)), (23, 'edge'),
+        (31, 'keep'), (44, CAST(NULL AS STRING)), (57, 'remove'), (88, 'last') AS v(id, value)""")
+      sql("DELETE FROM tbl WHERE id IN (-7, 9, 57)")
+      sql("DELETE FROM tbl WHERE id = 4")
+      val table = registerTable("tbl")
+      val schema = new StructType().add("id", IntegerType).add("value", StringType)
+      val baseRows = Seq(Row(-7, "remove"), Row(0, "keep"), Row(4, null), Row(4, null),
+        Row(9, "remove"), Row(12, "keep"), Row(18, null), Row(23, "edge"),
+        Row(31, "keep"), Row(44, null), Row(57, "remove"), Row(88, "last"))
+      val firstRows = baseRows.filterNot(r => Set(-7, 9, 57).contains(r.getInt(0)))
+      val latestRows = firstRows.filterNot(_.getInt(0) == 4)
+      val original = (0L to 3L).map(v => v -> CommitLog.read(table.sourcePath, v)).toMap
+      val metadata = original(0L).collect { case m: Metadata => m }.ensuring(_.size == 1).head
+      val protocol = original(0L).collect { case p: Protocol => p }.ensuring(_.size == 1).head
+      assert(DataType.fromJson(metadata.schemaString) == schema)
+      assert(metadata.partitionColumns.isEmpty)
+      assert(metadata.configuration == Map("delta.enableDeletionVectors" -> "true",
+        "delta.checkpointInterval" -> "1000", "delta.checkpointPolicy" -> "classic"))
+      assert(protocol == Protocol(3, 7, Some(Set("deletionVectors")),
+        Some(Set("appendOnly", "deletionVectors", "invariants"))))
+      info("DV original protocol: " + protocol.toJson)
+      info("DV original metadata: " + metadata.toJson)
+      val adds = (1L to 3L).map { version =>
+        val found = original(version).collect { case a: AddFile => a }
+        assert(found.size == 1)
+        info(s"DV original add v$version: " + found.head.toJson)
+        version -> found.head
+      }.toMap
+      assert(adds.values.map(_.path).toSet.size == 1) // Deletes must retain the data file.
+      assert(adds(1L).deletionVector.isEmpty)
+      val physical = spark.read.parquet(table.sourcePath.resolve(adds(1L).path).toString)
+      assert(physical.schema == schema)
+      RowComparison.assertRowsEqual(spark.createDataFrame(baseRows.asJava, schema), physical,
+        s"$form physical input")
+      val physicalRows = physical.collect().toSeq
+      val sourceDvs = (2L to 3L).map(v => v -> adds(v).deletionVector.get).toMap
+      sourceDvs.foreach { case (version, dv) =>
+        assert(dv.storageType == "u")
+        assert(dv.cardinality == (if (version == 2L) 3L else 5L))
+        val expectedPositions = physicalRows.zipWithIndex.collect {
+          case (row, index) if Set(-7, 9, 57).contains(row.getInt(0)) ||
+            (version == 3L && row.getInt(0) == 4) => index.toLong
+        }
+        assert(RoaringBitmapArray.readFrom(payload(table.sourcePath, dv)).toArray.toSeq ==
+          expectedPositions)
+      }
+      val converted = sourceDvs.values.map { dv =>
+        val bytes = payload(table.sourcePath, dv)
+        // Use the verified OSS helper with exact engine-generated payload bytes.
+        val inline = DeletionVectorDescriptor.inlineInLog(bytes, dv.cardinality)
+        assert(inline.storageType == "i" && inline.offset.isEmpty)
+        assert(inline.sizeInBytes == bytes.length && inline.cardinality == dv.cardinality)
+        assert(inline.inlineData.sameElements(bytes))
+        dv -> DeletionVector(inline.storageType, inline.pathOrInlineDv, inline.offset,
+          inline.sizeInBytes, inline.cardinality)
+      }.toMap
+      if (form == "inline") {
+        (2L to 3L).foreach { version =>
+          modifyCommitActions(table, version) { actions =>
+            actions.map {
+              case add: AddFile => add.copy(deletionVector = add.deletionVector.map(converted))
+              // The second delete removes the first DV identity; convert that tombstone too.
+              case remove: RemoveFile =>
+                remove.copy(deletionVector = remove.deletionVector.map(converted))
+              case other => other
+            }
+          }
+        }
+      }
+      val expectedAdds = adds.map { case (version, add) =>
+        version -> (if (form == "inline") {
+          add.copy(deletionVector = add.deletionVector.map(converted))
+        } else add)
+      }
+      var copiedTable: Path = null
+      mutateTable(table) { dir =>
+        copiedTable = dir
+        val sidecars = sourceDvs.values.map(dv => sidecar(dir, dv)).toSet
+        if (form == "inline") sidecars.foreach(Files.delete)
+        else sidecars.foreach(p => assert(Files.isRegularFile(p)))
+        // Version checksums embed the original descriptors and become stale after conversion.
+        val logs = Files.list(dir.resolve("_delta_log"))
+        try logs.iterator().asScala.filter(_.getFileName.toString.endsWith(".crc"))
+          .foreach(Files.delete)
+        finally logs.close()
+        (1L to 3L).foreach { version =>
+          val actions = CommitLog.read(dir, version)
+          assert(actions.collect { case a: AddFile => a } == Seq(expectedAdds(version)))
+          expectedAdds(version).deletionVector.foreach { dv =>
+            assert(dv.storageType == (if (form == "inline") "i" else "u"))
+            assert(dv.cardinality == (if (version == 2L) 3L else 5L))
+            assert(payload(dir, dv).sameElements(payload(table.sourcePath, sourceDvs(version))))
+            assert(RoaringBitmapArray.readFrom(payload(dir, dv)).cardinality == dv.cardinality)
+          }
+        }
+        val oldIdentity = CommitLog.read(dir, 3L).collect { case r: RemoveFile => r }
+        assert(oldIdentity.size == 1)
+        assert(oldIdentity.head.path == adds(1L).path)
+        assert(oldIdentity.head.deletionVector == expectedAdds(2L).deletionVector)
+        assert(Files.size(dir.resolve(adds(1L).path)) == adds(1L).size)
+        if (form == "inline") assert(sidecars.forall(p => !Files.exists(p)))
+      }
+      val snapshot = SnapshotResult(
+        ProtocolInfo(3, 7, Some(Seq("deletionVectors")),
+          Some(Seq("appendOnly", "deletionVectors", "invariants"))),
+        MetadataInfo(metadata.id, metadata.name, metadata.description,
+          HarnessFormat("parquet", Map.empty), metadata.schemaString, Seq.empty,
+          metadata.configuration, metadata.createdTime))
+      Seq[java.lang.Long](1L, 2L, null).foreach { version =>
+        snapshotSpec(table, version = version).assert { spec =>
+          assert(spec.query == SnapshotQuery(version = Some(Option(version).fold(3L)(_.toLong))))
+          assert(spec.expectation == Succeeded(snapshot))
+        }
+      }
+      val projected = new StructType().add("value", StringType)
+      val reordered = projected.add("id", IntegerType)
+      val filter = "id IN (4, 12, 18, 57)"
+      val cases = Seq(
+        ("read_base", ReadQuery(version = Some(1L)), schema, baseRows),
+        ("read_first_delete", ReadQuery(version = Some(2L)), schema, firstRows),
+        ("read_latest", ReadQuery(), schema, latestRows),
+        ("read_v2_filtered_projected", ReadQuery(version = Some(2L),
+          predicate = Some(filter), columns = Some(Seq("value", "id"))), reordered,
+          Seq(Row(null, 4), Row(null, 4), Row("keep", 12), Row(null, 18))),
+        ("read_v3_filtered_projected", ReadQuery(version = Some(3L),
+          predicate = Some(filter), columns = Some(Seq("value", "id"))), reordered,
+          Seq(Row("keep", 12), Row(null, 18))),
+        ("read_projected", ReadQuery(columns = Some(Seq("value"))), projected,
+          Seq(Row("keep"), Row("keep"), Row(null), Row("edge"), Row("keep"), Row(null),
+            Row("last"))),
+        ("read_deleted_only", ReadQuery(predicate = Some("id IN (-7, 4, 9, 57)")), schema,
+          Seq.empty[Row]))
+      cases.foreach { case (name, query, expectedSchema, rows) =>
+        readSpec(table, name = Some(name), version = query.version.map(Long.box).orNull,
+          predicate = query.predicate.orNull, columns = query.columns).assert { spec =>
+          assert(spec.query == query)
+          // All predicates overlap physical min/max; the single data AddFile remains scanned.
+          assert(spec.expectation == Succeeded(ReadResult(rows.size.toLong, 1, 0L)))
+          val actual = SnapshotResolver.applyFilters(
+            SnapshotResolver.buildDeltaReader(spark, copiedTable, query.version, query.timestamp),
+            query.predicate, query.columns)
+          assert(actual.schema == expectedSchema)
+          RowComparison.assertRowsEqual(spark.createDataFrame(rows.asJava, expectedSchema), actual,
+            s"$form $name")
+          val fixture = outputDir.resolve(WorkloadContext.current.workloadName)
+          val specName = s"${fixture.getFileName}_$name"
+          val captured = spark.read.parquet(
+            fixture.resolve(s"expected/$specName/expected_metadata").toString)
+          val scanned = captured.collect().toSeq.map { row =>
+            val node = JsonUtil.mapper.readTree(row.getString(0))
+            val wrapped = if (node.has("add")) node.toString else s"""{"add":$node}"""
+            Action.parse(wrapped)
+          }
+          // OSS InMemoryLogReplay stores active AddFiles with dataChange=false;
+          // ReadCapture obtains these snapshot actions through DeltaSparkHarness.allFiles.
+          assert(scanned == Seq(expectedAdds(query.version.getOrElse(3L))
+            .copy(dataChange = false)))
+        }
+      }
+    }
   }
 
 }
